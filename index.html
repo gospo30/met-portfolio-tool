@@ -4418,15 +4418,28 @@ async function cloudDeleteOpportunity(id){
 }
 // After a manual JSON import, push every opportunity (and settings) up to SharePoint so the
 // team's shared copy reflects the import too, not just this browser.
+// Each record is saved independently — one failed save must never stop the rest of the batch
+// from reaching SharePoint (previously a single failure silently aborted every record after it).
 async function pushFullImportToCloud(){
   if(!cloudEnabled()) return;
   setSyncStatus('Pushing imported data to SharePoint…', false);
+  const failed = [];
+  for(const o of DATA){
+    try{
+      await cloudSaveRecord('Opportunity', o.id, o.name, stripSyncMeta(o));
+    }catch(err){
+      failed.push(o.name || o.id);
+    }
+  }
   try{
-    for(const o of DATA){ await cloudSaveRecord('Opportunity', o.id, o.name, stripSyncMeta(o)); }
     await cloudSaveRecord('Settings', 'settings', 'Sensitivity Settings', buildSavePayload().sensitivity);
-    setSyncStatus('Import pushed to SharePoint at ' + new Date().toLocaleTimeString(), false);
   }catch(err){
-    setSyncStatus('SharePoint sync failed during import push (' + err.message + ')', true);
+    failed.push('Sensitivity Settings');
+  }
+  if(failed.length){
+    setSyncStatus('Import pushed with ' + failed.length + ' failure(s): ' + failed.join(', ') + ' — click Refresh from SharePoint after checking connection.', true);
+  }else{
+    setSyncStatus('Import pushed to SharePoint at ' + new Date().toLocaleTimeString(), false);
   }
 }
 function startCloudPolling(){
