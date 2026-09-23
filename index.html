@@ -3775,10 +3775,13 @@ function deleteCustomScenario(key){
    mean approximation to the principal eigenvector, plus a formal Consistency Ratio (CR) check
    (Saaty's method) so contradictory judgments get flagged rather than silently averaged away. */
 const AHP_KEYS = ['L1','L2','L3','L4','L6','L8','L11']; // same 7 lenses as state.weights (Technology Readiness folded into L4)
-// Saaty's 1-9 fundamental scale. Slider distance from center (0-8) maps to ratio 1-9.
-const AHP_SAATY_LABELS = {1:'Equal importance',2:'Weak to moderate importance',3:'Moderate importance',4:'Moderate to strong importance',5:'Strong importance',6:'Strong to very strong importance',7:'Very strong importance',8:'Very strong to extreme importance',9:'Extreme importance'};
+// Saaty's conventional 5-point scale (odd values only: 1,3,5,7,9). Slider distance from
+// center (0-4) maps to ratio 1,3,5,7,9 — this intentionally skips the "in-between" even
+// ratios (2,4,6,8) so directors are choosing among 9 clear, named judgments rather than a
+// 17-point continuum with the fine distinctions between adjacent notches getting muddy.
+const AHP_SAATY_LABELS = {1:'Equal importance',3:'Moderate importance',5:'Strong importance',7:'Very strong importance',9:'Extreme importance'};
 const AHP_RI = {1:0,2:0,3:0.58,4:0.9,5:1.12,6:1.24,7:1.32,8:1.41,9:1.45,10:1.49}; // Saaty's Random Index table
-let ahpPairValues = {}; // `${i}-${j}` -> integer -8..8 (sign = which side is favored, magnitude = strength)
+let ahpPairValues = {}; // `${i}-${j}` -> integer -4..4 (sign = which side is favored, magnitude = strength)
 
 function ahpPairList(){
   const pairs = [];
@@ -3790,7 +3793,7 @@ function ahpBuildMatrix(){
   const M = Array.from({length:n},()=>Array(n).fill(1));
   ahpPairList().forEach(([i,j])=>{
     const v = ahpPairValues[`${i}-${j}`] || 0;
-    const ratio = Math.abs(v) + 1; // 1..9
+    const ratio = Math.abs(v)*2 + 1; // 1,3,5,7,9
     if(v < 0){ M[i][j] = ratio; M[j][i] = 1/ratio; }
     else if(v > 0){ M[i][j] = 1/ratio; M[j][i] = ratio; }
   });
@@ -3824,7 +3827,7 @@ function ahpWeightsToIntegers(fractions){
   return result;
 }
 function ahpRatioLabel(v){
-  const ratio = Math.abs(v) + 1;
+  const ratio = Math.abs(v)*2 + 1;
   return AHP_SAATY_LABELS[ratio] || AHP_SAATY_LABELS[9];
 }
 function renderAhpPairs(){
@@ -3838,7 +3841,7 @@ function renderAhpPairs(){
         <span class="ahp-readout" id="ahp-readout-${key}">${v===0?'Equal importance':(v<0?LENS_LABELS[AHP_KEYS[i]]:LENS_LABELS[AHP_KEYS[j]])+' &mdash; '+ahpRatioLabel(v)}</span>
         <span>${LENS_LABELS[AHP_KEYS[j]]}</span>
       </div>
-      <input type="range" min="-8" max="8" step="1" value="${v}" id="ahp-slider-${key}">
+      <input type="range" min="-4" max="4" step="1" value="${v}" id="ahp-slider-${key}">
     </div>`;
   }).join('');
   ahpPairList().forEach(([i,j])=>{
