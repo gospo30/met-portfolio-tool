@@ -514,7 +514,7 @@ svg text{font-family:var(--font-headline);}
           <button class="btn btn-sm" id="openAhpBtn">+ Add New</button>
         </div>
       </div>
-      <p class="subtle" style="margin:-8px 0 12px;">Baseline and the four posture presets above are director-set starting points, not a formally derived result. Use <b>+ Add New</b> to derive weights from a structured, defensible pairwise-comparison process instead.</p>
+      <p class="subtle" style="margin:-8px 0 12px;">Baseline is derived from a 3-person AHP pairwise-comparison survey (Consistency Ratio 4.4%, well within Saaty's 10% guideline) — see the AHP Weight Builder workbook for the full respondent-level detail. The four posture presets above remain director-set starting points, not formally derived. Use <b>+ Add New</b> to run a fresh pairwise-comparison process of your own.</p>
       <div class="two-col" style="margin-bottom:26px;">
         <div class="card">
           <h3 style="margin-bottom:10px;">Composite Weighting</h3>
@@ -704,7 +704,7 @@ const state = {
   activeTab: 'dashboard',
   activeLens: 'L1',
   sortKey: 'composite', sortDir: 'desc',
-  weights: { L1:18, L2:13, L3:13, L4:22, L6:13, L8:9, L11:12 },
+  weights: { L1:26, L2:8, L3:21, L4:7, L6:23, L8:9, L11:6 },
   riskPenalty: 10,
   scenario: 'baseline',
   // Weight scenarios a user has derived and saved via the AHP builder, in addition to the 5
@@ -2219,7 +2219,7 @@ function renderRoadmap(){
 
 /* ---------------------------- scenarios ---------------------------- */
 const SCENARIOS = {
-  baseline: { label:'Baseline (Director Model)', weights:{L1:18,L2:13,L3:13,L4:22,L6:13,L8:9,L11:12}, riskPenalty:10 },
+  baseline: { label:'Baseline (AHP-Derived)', weights:{L1:26,L2:8,L3:21,L4:7,L6:23,L8:9,L11:6}, riskPenalty:10 },
   ascFirst: { label:'ASC-First / Efficiency Push', weights:{L1:14,L2:14,L3:9,L4:36,L6:14,L8:5,L11:8}, riskPenalty:8 },
   defend: { label:'Competitive Defense Posture', weights:{L1:9,L2:9,L3:13,L4:22,L6:9,L8:26,L11:12}, riskPenalty:12 },
   bold: { label:'Bold Transformation Bet', weights:{L1:13,L2:18,L3:13,L4:14,L6:18,L8:13,L11:11}, riskPenalty:5 },
