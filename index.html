@@ -308,7 +308,6 @@ svg text{font-family:var(--font-headline);}
     <button class="tab-btn" data-tab="roadmap" style="display:none;">Roadmap</button>
     <button class="tab-btn" data-tab="lenses">Prioritization Lenses</button>
     <button class="tab-btn" data-tab="portfolio">Portfolio Balance</button>
-    <button class="tab-btn" data-tab="riskreward">Risk, Reward &amp; Positioning</button>
     <button class="tab-btn" data-tab="sensitivity">Sensitivity Analysis</button>
     <button class="tab-btn" data-tab="executive">Executive View</button>
     <button class="tab-btn" data-tab="copilot">AI Copilot</button>
@@ -452,7 +451,7 @@ svg text{font-family:var(--font-headline);}
     <!-- PORTFOLIO BALANCE -->
     <section class="panel" id="panel-portfolio">
       <h2 class="section-title">Innovation Portfolio Management</h2>
-      <p class="section-sub">Balancing Core, Adjacent, and Transformational initiatives across Horizon 1-3, with resource allocation guidance.</p>
+      <p class="section-sub">Balancing Core, Adjacent, and Transformational initiatives across Horizon 1-3, with resource allocation guidance — plus risk/reward positioning, technology feasibility, competitive landscape, and Source of Volume pool depletion across the portfolio.</p>
       <div class="grid grid-3 section">
         <div class="card">
           <h3 style="margin-bottom:10px;">Core / Adjacent / Transformational</h3>
@@ -475,12 +474,6 @@ svg text{font-family:var(--font-headline);}
         <h3 style="margin-bottom:10px;">Portfolio Map (Impact vs. Ability to Win, colored by Category)</h3>
         <div class="svg-wrap"><div id="portfolioMap"></div></div>
       </div>
-    </section>
-
-    <!-- RISK REWARD -->
-    <section class="panel" id="panel-riskreward">
-      <h2 class="section-title">Risk, Reward &amp; Competitive Positioning</h2>
-      <p class="section-sub">Separating market attractiveness, technology feasibility, risk, and competitive position instead of blending everything into one number.</p>
       <div class="grid grid-2 section">
         <div class="card"><h3 style="margin-bottom:10px;">Risk-Reward Matrix<span class="info-icon" id="rr-info-matrix">i</span></h3><div class="svg-wrap"><div id="riskRewardChart"></div></div></div>
         <div class="card"><h3 style="margin-bottom:10px;">Technology Feasibility vs. Economic Value<span class="info-icon" id="rr-info-feasvalue">i</span></h3><div class="svg-wrap"><div id="feasValueChart"></div></div></div>
@@ -495,6 +488,11 @@ svg text{font-family:var(--font-headline);}
           <p class="subtle" style="margin:-4px 0 10px;">Every revenue-generating opportunity plotted by its assigned Source of Volume — the Big Picture Partners 4-quadrant growth framework. Cost-savings opportunities and linked components don't have an SoV and aren't shown.</p>
           <div class="svg-wrap"><div id="sovQuadrantChart"></div></div>
         </div>
+      </div>
+      <div class="card section">
+        <h3 style="margin-bottom:10px;">Source of Volume Pool Depletion<span class="info-icon" id="pf-info-depletion" title="Pool sizes (cases/yr) come from sovVolumePool() — the same FY'25 procedure database figures used everywhere else in the tool. Claimed cases = pool size x each opportunity's eligibility% x capture% (or, for Acquisition – Stimulate Demand, its own direct per-procedure pull%). Case counts are addressable volume, not committed/booked cases.">i</span></h3>
+        <p class="subtle" style="margin:-4px 0 10px;">How much of each Source of Volume + procedure pool the portfolio has already claimed, opportunity by opportunity. A pool at or past 100% means at least one opportunity's addressable volume is overstated relative to the FY'25 procedure database — review the contributors together. Only pools with at least one opportunity currently drawing from them are shown.</p>
+        <div id="sovDepletionChart"></div>
       </div>
     </section>
 
@@ -956,7 +954,10 @@ function sovProcedureASP(proc){
 // same SoV quadrant + procedure and flags them (surfaced as AI Copilot messages) so the overlap is
 // visible instead of silent. Draw % is expressed on a common 0-100 basis for both calculation
 // paths: generic SoVs (eligibility% x capture%) and acqSD (its own direct per-procedure pull%).
-function sovOverlapWarnings(){
+// Shared by sovOverlapWarnings() (below) and sovPoolDepletion() (Portfolio Balance's depletion
+// chart) — one pass over DATA building, per SoV+procedure pool key, the list of opportunities
+// drawing from it and each one's draw % (0-100 basis, same calc for both calculation paths).
+function sovPoolGroups(){
   const groups = {};
   DATA.forEach(o=>{
     if(o.tamMethod!=='sov' || !o.sov) return;
@@ -983,6 +984,10 @@ function sovOverlapWarnings(){
       });
     }
   });
+  return groups;
+}
+function sovOverlapWarnings(){
+  const groups = sovPoolGroups();
   const warnings = [];
   Object.keys(groups).forEach(key=>{
     const entries = groups[key];
@@ -997,6 +1002,29 @@ function sovOverlapWarnings(){
   });
   warnings.sort((a,b)=> (b.severe-a.severe) || (b.combined-a.combined));
   return warnings;
+}
+// Portfolio Balance's "Source of Volume Pool Depletion" chart — unlike sovOverlapWarnings()
+// above (which only flags pools TWO OR MORE opportunities share), this returns every pool with
+// at least ONE opportunity drawing from it, so the chart shows how much of each pool the
+// portfolio has claimed even before a second opportunity creates an overlap.
+function sovPoolDepletion(){
+  const groups = sovPoolGroups();
+  const pools = Object.keys(groups).map(key=>{
+    const [sov, pk] = key.split('|');
+    const entries = groups[key];
+    const combined = entries.reduce((s,e)=>s+e.pct,0);
+    const poolCases = sovVolumePool(sov, pk);
+    const claimedCases = poolCases * combined/100;
+    const remainingCases = Math.max(poolCases - claimedCases, 0);
+    const overClaimedCases = Math.max(claimedCases - poolCases, 0);
+    return {
+      sov, pk, combined, poolCases, claimedCases, remainingCases, overClaimedCases,
+      label: `${SOV_LABELS[sov]} — ${SOV_PROCEDURE_META[pk].label}`,
+      entries: entries.map(e=>({ id:e.o.id, name:e.o.name, pct:e.pct, cases: poolCases * e.pct/100 })).sort((a,b)=>b.pct-a.pct),
+    };
+  });
+  pools.sort((a,b)=>b.combined-a.combined);
+  return pools;
 }
 
 // Confidence rating per channel — a director-set Low/Medium/High discount applied on top of the
@@ -2400,6 +2428,63 @@ function drawRevenueBarChart(containerId, items, opts={}){
   });
 }
 
+// Portfolio Balance's "Source of Volume Pool Depletion" chart — one stacked horizontal bar per
+// SoV+procedure pool (from sovPoolDepletion()), segmented by contributing opportunity so it's
+// visible at a glance how much of each pool is already claimed and by whom, with the unclaimed
+// remainder left as plain background up to 100%. A pool combined past 100% is drawn as a full,
+// red-bordered bar (segments rescaled to fit) with the true over-100% total called out in the
+// header, mirroring the "pool exceeded" severity used by the AI Copilot's overlap warnings.
+const SOV_DEPLETION_PALETTE = ['#1C5687','#4C7D7A','#85458A','#FFB500','#5B8C3E','#AF6D04','#C24E4E','#8A8D91'];
+function drawSovDepletionChart(containerId, pools){
+  const container = document.getElementById(containerId);
+  container.innerHTML = '';
+  if(!pools.length){
+    container.innerHTML = `<p class="subtle">No Source of Volume opportunity has a capture rate set yet — pools will fill in here as SoV-based opportunities are added or their capture rates are adjusted.</p>`;
+    return;
+  }
+  const fmtCases = n => Math.round(n).toLocaleString();
+  pools.forEach(p=>{
+    const row = document.createElement('div');
+    row.style.cssText = 'margin-bottom:16px;';
+    const over = p.combined > 100;
+    const header = document.createElement('div');
+    header.style.cssText = 'display:flex;justify-content:space-between;align-items:baseline;margin-bottom:2px;gap:10px;';
+    header.innerHTML = `<span style="font-size:12px;font-weight:600;color:#000;">${escapeHtml(p.label)}</span>
+      <span style="font-size:12px;font-weight:700;color:${over?'#C24E4E':'#1C5687'};white-space:nowrap;">${round1(p.combined)}% claimed${over?' — exceeds pool':''}</span>`;
+    row.appendChild(header);
+    const subheader = document.createElement('div');
+    subheader.style.cssText = 'font-size:11px;color:#545857;margin-bottom:5px;';
+    subheader.textContent = over
+      ? `${fmtCases(p.poolCases)} cases/yr pool — ${fmtCases(p.claimedCases)} claimed, ${fmtCases(p.overClaimedCases)} over the pool's capacity`
+      : `${fmtCases(p.claimedCases)} of ${fmtCases(p.poolCases)} cases/yr claimed — ${fmtCases(p.remainingCases)} remaining`;
+    row.appendChild(subheader);
+    const barWrap = document.createElement('div');
+    barWrap.style.cssText = `display:flex;align-items:center;height:20px;background:#F0F0F0;border-radius:6px;overflow:hidden;${over?'border:2px solid #C24E4E;':''}`;
+    p.entries.forEach((e,i)=>{
+      const seg = document.createElement('div');
+      const width = over ? (e.pct/p.combined*100) : e.pct;
+      seg.style.cssText = `width:${width}%;height:100%;background:${SOV_DEPLETION_PALETTE[i % SOV_DEPLETION_PALETTE.length]};cursor:pointer;`;
+      const tipHtml = `<b>${escapeHtml(p.label)}</b><br>${escapeHtml(e.name)}: ${round1(e.pct)}% of this pool (${fmtCases(e.cases)} cases/yr)`;
+      seg.addEventListener('mousemove', ev=>showTip(ev, tipHtml));
+      seg.addEventListener('mouseleave', hideTip);
+      if(e.id) seg.addEventListener('click', ()=>openDetail(e.id));
+      barWrap.appendChild(seg);
+    });
+    row.appendChild(barWrap);
+    const legend = document.createElement('div');
+    legend.style.cssText = 'display:flex;flex-wrap:wrap;gap:10px;margin-top:5px;';
+    p.entries.forEach((e,i)=>{
+      const chip = document.createElement('span');
+      chip.style.cssText = 'font-size:10.5px;color:#545857;display:inline-flex;align-items:center;gap:4px;cursor:pointer;';
+      chip.innerHTML = `<span style="width:8px;height:8px;border-radius:2px;background:${SOV_DEPLETION_PALETTE[i % SOV_DEPLETION_PALETTE.length]};display:inline-block;"></span>${escapeHtml(e.name)} (${round1(e.pct)}% &middot; ${fmtCases(e.cases)} cases/yr)`;
+      if(e.id) chip.addEventListener('click', ()=>openDetail(e.id));
+      legend.appendChild(chip);
+    });
+    row.appendChild(legend);
+    container.appendChild(row);
+  });
+}
+
 function drawDonut(containerId, segments){ // [{label,value,color}]
   const container = document.getElementById(containerId);
   container.innerHTML='';
@@ -2434,7 +2519,6 @@ function renderAll(){
   renderRoadmap();
   renderLenses();
   renderPortfolio();
-  renderRiskReward();
   renderSensitivity();
   renderExecutive();
   renderCopilot();
@@ -3567,9 +3651,40 @@ function renderPortfolio(){
     tooltip:`<b>${o.name}</b><br>${o.category} &middot; ${o.horizon}<br>Impact ${legacyImpact(o)} / Ability ${legacyAbility(o)}`
   })), { xLabel:'Ability to Win', yLabel:'Impact', xDomain:[3,27], yDomain:[3,27], quadrants:true,
     quadrantColors:['#F0F0F0','#E4EBF1','#F6E8E5','#E7F2E8'], quadrantLabels:['Watch List','Strategic Bets','Reassess','Quick Wins'] });
+
+  // Risk, Reward & Positioning charts, plus SoV Pool Depletion — formerly their own tab, folded
+  // into Portfolio Balance since a director reviewing portfolio composition wants all of this in
+  // one place rather than switching tabs.
+  drawScatter('riskRewardChart', nonComponentData().map(o=>({
+    x:o.risk, y:round1(compositeScore(o)), size:o.tamScore, color:COLORS[o.category], id:o.id,
+    tooltip:`<b>${o.name}</b><br>Risk ${o.risk}/9 &middot; Composite ${round1(compositeScore(o))}/100`
+  })), { xLabel:'Risk (1=low, 9=high)', yLabel:'Composite Opportunity Score', xDomain:[1,9], yDomain:[0,100], quadrants:true,
+    quadrantColors:['#F6E8E5','#E7F2E8','#F0F0F0','#F5EDE1'], quadrantLabels:['Low Reward / Low Risk','High Reward / Low Risk (Sweet Spot)','Low Reward / High Risk (Avoid)','High Reward / High Risk (Bold Bets)'] });
+  const rrInfo = document.getElementById('rr-info-matrix');
+  if(rrInfo) rrInfo.title = compositeFormulaText();
+
+  drawScatter('feasValueChart', nonComponentData().map(o=>({
+    x:o.technicalFeasibility, y:round1(axisEconomicValue(o)), size:o.strykerAdvantage, color:COLORS[o.category], id:o.id,
+    tooltip:`<b>${o.name}</b><br>Tech Feasibility ${o.technicalFeasibility}/9 &middot; Economic Value ${round1(axisEconomicValue(o))}/100`
+  })), { xLabel:'Technology Feasibility', yLabel:'Economic Value Creation', xDomain:[1,9], yDomain:[0,100], quadrants:true,
+    quadrantColors:['#F0F0F0','#E7F2E8','#F6E8E5','#F5EDE1'], quadrantLabels:['Hard & Low Value','Easy & High Value (Prioritize)','Hard & Low Value (Avoid)','Easy but Lower Value (Fill-ins)'] });
+  const fvInfo = document.getElementById('rr-info-feasvalue');
+  if(fvInfo) fvInfo.title = 'X-axis: Technical Feasibility (1-9, director-entered). Y-axis: Economic Value Creation (0-100) = 45% scaled TAM score + 35% scaled inverse Investment Required + 20% scaled Clinical Impact. Bubble size = Stryker Advantage (1-9). Color = portfolio category. Quadrant lines split at the fixed midpoint of each axis (Feasibility = 5, Value = 50), not the median of your actual data.';
+
+  drawScatter('competitiveChart', nonComponentData().map(o=>({
+    x:o.competitiveIntensity, y:o.strykerAdvantage, size:o.tamScore, color:COLORS[o.category], id:o.id,
+    tooltip:`<b>${o.name}</b><br>Competitive Intensity ${o.competitiveIntensity}/9 &middot; Stryker Advantage ${o.strykerAdvantage}/9`
+  })), { xLabel:'Competitive Intensity', yLabel:'Stryker Advantage', xDomain:[1,9], yDomain:[1,9], quadrants:true,
+    quadrantColors:['#F0F0F0','#E7F2E8','#F6E8E5','#F5EDE1'], quadrantLabels:['Uncontested, Low Edge','Defensible Moat (Best)','Crowded, Low Edge (Risky)','Crowded but Advantaged'] });
+  const cpInfo = document.getElementById('rr-info-competitive');
+  if(cpInfo) cpInfo.title = 'X-axis: Competitive Intensity (1-9, raw director-entered score). Y-axis: Stryker Advantage (1-9, raw score) — no blending on either axis, unlike the other two charts. Bubble size = TAM score (1-9). Color = portfolio category. Quadrant lines split at the fixed midpoint of both scales (5, 5). Bubble sizes are scaled relative to the largest bubble on this chart only — not comparable to the other two charts on this page.';
+
+  renderSovQuadrantChart();
+
+  drawSovDepletionChart('sovDepletionChart', sovPoolDepletion());
 }
 
-/* ---------------------------- Risk-Reward & Positioning ---------------------------- */
+/* ---------------------------- Risk-Reward & Positioning helpers ---------------------------- */
 // Builds the Risk-Reward Matrix's info-icon text live from the current Sensitivity Analysis
 // weights, so the explanation always matches what the y-axis is actually computing.
 function compositeFormulaText(){
@@ -3628,34 +3743,6 @@ function renderSovQuadrantChart(){
   const svInfo = document.getElementById('rr-info-sov');
   if(svInfo) svInfo.title = 'Plots every revenue-generating, non-component opportunity by its assigned Source of Volume (SoV) — the Big Picture Partners 4-quadrant growth framework: Customer focus (Acquisition vs Retention) x Category focus (Stimulate Demand vs Earn Share). Bubble size = TAM score (1-9, log-scaled). Color = portfolio category. Position within a quadrant is a readability layout only, not a measured value — opportunities sharing a quadrant are fanned out in a grid so bubbles don’t overlap. Cost-savings opportunities and linked components have no SoV and are not shown.';
 }
-function renderRiskReward(){
-  drawScatter('riskRewardChart', nonComponentData().map(o=>({
-    x:o.risk, y:round1(compositeScore(o)), size:o.tamScore, color:COLORS[o.category], id:o.id,
-    tooltip:`<b>${o.name}</b><br>Risk ${o.risk}/9 &middot; Composite ${round1(compositeScore(o))}/100`
-  })), { xLabel:'Risk (1=low, 9=high)', yLabel:'Composite Opportunity Score', xDomain:[1,9], yDomain:[0,100], quadrants:true,
-    quadrantColors:['#F6E8E5','#E7F2E8','#F0F0F0','#F5EDE1'], quadrantLabels:['Low Reward / Low Risk','High Reward / Low Risk (Sweet Spot)','Low Reward / High Risk (Avoid)','High Reward / High Risk (Bold Bets)'] });
-  const rrInfo = document.getElementById('rr-info-matrix');
-  if(rrInfo) rrInfo.title = compositeFormulaText();
-
-  drawScatter('feasValueChart', nonComponentData().map(o=>({
-    x:o.technicalFeasibility, y:round1(axisEconomicValue(o)), size:o.strykerAdvantage, color:COLORS[o.category], id:o.id,
-    tooltip:`<b>${o.name}</b><br>Tech Feasibility ${o.technicalFeasibility}/9 &middot; Economic Value ${round1(axisEconomicValue(o))}/100`
-  })), { xLabel:'Technology Feasibility', yLabel:'Economic Value Creation', xDomain:[1,9], yDomain:[0,100], quadrants:true,
-    quadrantColors:['#F0F0F0','#E7F2E8','#F6E8E5','#F5EDE1'], quadrantLabels:['Hard & Low Value','Easy & High Value (Prioritize)','Hard & Low Value (Avoid)','Easy but Lower Value (Fill-ins)'] });
-  const fvInfo = document.getElementById('rr-info-feasvalue');
-  if(fvInfo) fvInfo.title = 'X-axis: Technical Feasibility (1-9, director-entered). Y-axis: Economic Value Creation (0-100) = 45% scaled TAM score + 35% scaled inverse Investment Required + 20% scaled Clinical Impact. Bubble size = Stryker Advantage (1-9). Color = portfolio category. Quadrant lines split at the fixed midpoint of each axis (Feasibility = 5, Value = 50), not the median of your actual data.';
-
-  drawScatter('competitiveChart', nonComponentData().map(o=>({
-    x:o.competitiveIntensity, y:o.strykerAdvantage, size:o.tamScore, color:COLORS[o.category], id:o.id,
-    tooltip:`<b>${o.name}</b><br>Competitive Intensity ${o.competitiveIntensity}/9 &middot; Stryker Advantage ${o.strykerAdvantage}/9`
-  })), { xLabel:'Competitive Intensity', yLabel:'Stryker Advantage', xDomain:[1,9], yDomain:[1,9], quadrants:true,
-    quadrantColors:['#F0F0F0','#E7F2E8','#F6E8E5','#F5EDE1'], quadrantLabels:['Uncontested, Low Edge','Defensible Moat (Best)','Crowded, Low Edge (Risky)','Crowded but Advantaged'] });
-  const cpInfo = document.getElementById('rr-info-competitive');
-  if(cpInfo) cpInfo.title = 'X-axis: Competitive Intensity (1-9, raw director-entered score). Y-axis: Stryker Advantage (1-9, raw score) — no blending on either axis, unlike the other two charts. Bubble size = TAM score (1-9). Color = portfolio category. Quadrant lines split at the fixed midpoint of both scales (5, 5). Bubble sizes are scaled relative to the largest bubble on this chart only — not comparable to the other two charts on this page.';
-
-  renderSovQuadrantChart();
-}
-
 /* ---------------------------- Sensitivity ---------------------------- */
 let preSensitivityRanking = null;
 // Each weighting criterion is a composite score, not a raw attribute — so instead of a bare slider,
