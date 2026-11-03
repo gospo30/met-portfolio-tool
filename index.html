@@ -546,7 +546,7 @@ svg text{font-family:var(--font-headline);}
     <!-- EXECUTIVE -->
     <section class="panel" id="panel-executive">
       <h2 class="section-title no-print">Executive View</h2>
-      <p class="section-sub no-print">Auto-generated executive communication, written for GM / Division President / Executive Leadership audiences.</p>
+      <p class="section-sub no-print">Auto-generated executive communication.</p>
       <div class="btn-row section no-print">
         <button class="btn btn-primary" id="printExecBtn">Print / Save as PDF</button>
       </div>
@@ -2638,13 +2638,16 @@ function renderDashboard(){
   const avgRisk = round1(DATA.reduce((a,o)=>a+o.risk,0)/DATA.length);
   $('#kpi-risk').textContent = avgRisk;
 
-  const dollarized = DATA.filter(o=>o.tamAnnualUSD);
-  const pending = DATA.filter(o=>!o.tamAnnualUSD);
+  // Only top-level, active opportunities — linked components (rolled into their parent) and
+  // killed/stopped opportunities aren't on the Opportunities list, so they don't count here.
+  const listed = DATA.filter(o=>!isComponent(o) && !o.killed);
+  const dollarized = listed.filter(o=>o.tamAnnualUSD);
+  const pending = listed.filter(o=>!o.tamAnnualUSD);
   const tamTotal = dollarized.reduce((a,o)=>a+o.tamAnnualUSD,0);
   $('#dash-tam-total').textContent = fmtUSD(tamTotal) + ' / year';
   const pendingWord = pending.length===1 ? 'opportunity is' : 'opportunities are';
   renderDashSovPoolCards();
-  $('#dash-tam-note').textContent = `Across ${dollarized.length} of ${DATA.length} opportunities with a dollarized TAM basis. ${pending.length} ${pendingWord} still pending subscription/cost-savings inputs: ${pending.map(o=>o.name).join(', ')}.`;
+  $('#dash-tam-note').textContent = `Across ${dollarized.length} of ${listed.length} opportunities with a dollarized TAM basis. ${pending.length} ${pendingWord} still pending subscription/cost-savings inputs: ${pending.map(o=>o.name).join(', ')}.`;
 
   // Revenue by Opportunity (5-Year, Post-Launch) — every non-component opportunity, displayed in
   // ranked order (by Composite Score, same rank number shown in the Opportunities table and
@@ -2693,15 +2696,33 @@ function drawOpportunityFunnel(containerId, ranked){
   svg.appendChild(svgEl('path', {d:'M190,5 L320,60 L350,60 L480,5 L480,135 L350,80 L320,80 L190,135 Z', fill:'#C9DDE7'}));
   svg.appendChild(svgEl('rect', {x:480,y:5,width:180,height:130,rx:6,fill:'#E7F2E8'}));
   const zoneCenters = [ {x:95, key:'preDiscovery'}, {x:335, key:'inDiscovery'}, {x:570, key:'inNPD'} ];
+  const byStage = { preDiscovery:[], inDiscovery:[], inNPD:[] };
+  active.forEach(r=>{ byStage[DISCOVERY_STAGES.includes(r.o.discoveryStage)?r.o.discoveryStage:'preDiscovery'].push(r.o); });
+  const stageTip = key => `<b>${DISCOVERY_STAGE_LABELS[key]}</b> — ${counts[key]} opportunit${counts[key]===1?'y':'ies'}` +
+    (byStage[key].length ? '<br>'+byStage[key].map(o=>escapeHtml(o.name)).join('<br>') : '');
+  // Invisible hover targets drawn over each zone (the funnel neck's bounding area for In-Discovery).
+  [{key:'preDiscovery', x:0, w:190}, {key:'inDiscovery', x:190, w:290}, {key:'inNPD', x:480, w:180}].forEach(z=>{
+    const hit = z.key==='inDiscovery'
+      ? svgEl('path', {d:'M190,5 L320,60 L350,60 L480,5 L480,135 L350,80 L320,80 L190,135 Z', fill:'transparent', style:'cursor:pointer;'})
+      : svgEl('rect', {x:z.x, y:5, width:z.w, height:130, fill:'transparent', style:'cursor:pointer;'});
+    hit.addEventListener('mousemove', e=>showTip(e, stageTip(z.key)));
+    hit.addEventListener('mouseleave', hideTip);
+    hit.dataset.zone = z.key;
+    svg.appendChild(hit);
+  });
   zoneCenters.forEach(z=>{
-    const num = svgEl('text', {x:z.x, y:60, 'text-anchor':'middle', 'font-size':32, 'font-weight':800, fill:'#000000'});
+    const num = svgEl('text', {x:z.x, y:60, 'text-anchor':'middle', 'font-size':32, 'font-weight':800, fill:'#000000', style:'pointer-events:none;'});
     num.textContent = counts[z.key];
     svg.appendChild(num);
   });
   container.appendChild(svg);
   const labels = document.createElement('div');
   labels.className = 'funnel-zone-labels';
-  labels.innerHTML = DISCOVERY_STAGES.map(s=>`<div><b>${DISCOVERY_STAGE_LABELS[s]}</b>${counts[s]} opportunit${counts[s]===1?'y':'ies'}</div>`).join('');
+  labels.innerHTML = DISCOVERY_STAGES.map(s=>`<div data-stage="${s}" style="cursor:pointer;"><b>${DISCOVERY_STAGE_LABELS[s]}</b>${counts[s]} opportunit${counts[s]===1?'y':'ies'}</div>`).join('');
+  labels.querySelectorAll('div[data-stage]').forEach(d=>{
+    d.addEventListener('mousemove', e=>showTip(e, stageTip(d.dataset.stage)));
+    d.addEventListener('mouseleave', hideTip);
+  });
   container.appendChild(labels);
 }
 // Killed/stopped opportunities stay visible (not deleted) — shown here, greyed out, with the
@@ -4163,8 +4184,9 @@ function renderExecutive(){
   const h1Pct = round1(DATA.filter(o=>o.horizon==='H1').length/totalOpps*100);
   const avgConfidence = round1(DATA.reduce((a,o)=>a+o.confidenceLevel,0)/totalOpps);
   const highRiskCount = DATA.filter(o=>o.risk>=7).length;
-  const dollarizedOpps = DATA.filter(o=>o.tamAnnualUSD);
-  const pendingOpps = DATA.filter(o=>!o.tamAnnualUSD);
+  const listedOpps = DATA.filter(o=>!isComponent(o) && !o.killed);
+  const dollarizedOpps = listedOpps.filter(o=>o.tamAnnualUSD);
+  const pendingOpps = listedOpps.filter(o=>!o.tamAnnualUSD);
   const tamTotal = dollarizedOpps.reduce((a,o)=>a+o.tamAnnualUSD,0);
 
   $('#exec-summary').innerHTML = `
