@@ -1118,7 +1118,7 @@ function confidenceSelectHtml(id, label, value){
 function sovVolumeParts(o){
   const v = o.sovVolume || {};
   const zero = {convertedCases:0, procedureUSD:0, newSystems:0, capitalUSD:0, serviceUSD:0,
-    upgradeUSD:0, upgradeNewProcUSD:0, liftUSD:0, attachUSD:0, acqSdKneeUSD:0, acqSdHipUSD:0,
+    upgradeUSD:0, upgradeNewProcUSD:0, liftUSD:0, attachUSD:0, attachServiceUSD:0, attachSystems:0, acqSdKneeUSD:0, acqSdHipUSD:0,
     totalUSD:0, isNewProcedure:false, utilizationRate:0, vol:0, facilityPool:0, byProcedure:[],
     otherCases:0, otherUSD:0, recurringAnnualUSD:0, oneTimeCapitalUSD:0};
   if(o.tamMethod!=='sov' || !o.sov) return zero;
@@ -1222,7 +1222,7 @@ function sovVolumeParts(o){
   const capitalUSD = capitalUSDStd + otherCapitalUSD;
   const serviceUSD = serviceUSDStd + otherServiceUSD;
 
-  let upgradeUSD=0, upgradeNewProcUSD=0, liftUSD=0, attachUSD=0;
+  let upgradeUSD=0, upgradeNewProcUSD=0, liftUSD=0, attachUSD=0, attachServiceUSD=0, attachSystems=0;
   if(o.sov === 'retSD'){
     if(v.upgradeEnabled){
       const upgradedSystems = clamp(v.upgradeAdoptionPct,0,100)/100 * MARKET.makoSystemsUS;
@@ -1242,7 +1242,7 @@ function sovVolumeParts(o){
       liftUSD = baseVol * clamp(v.volumeLiftPct,0,100)/100 * liftAsp;
     }
   }
-  // Robot Purchase: a capital-only revenue stream, fully decoupled from the procedure conversions
+  // Robot Purchase: a capital sale (plus its annual service contract, below), fully decoupled from the procedure conversions
   // above (unlike the standard procedures' auto-capital, this isn't derived from any case volume).
   // Available for retSD (sized as a % of the existing US Mako fleet buying an extra robot — these
   // accounts already own hardware, so "additional" makes sense) and for acqES/retES (sized as a
@@ -1254,6 +1254,10 @@ function sovVolumeParts(o){
       ? clamp(v.attachAdoptionPct,0,100)/100 * MARKET.makoSystemsUS
       : Math.max(0, v.attachSystemCount||0);
     attachUSD = additionalSystems * (v.attachPrice||0);
+    // Every additional robot also carries the annual Mako service contract (same per-system rate
+    // used for new-system placements elsewhere) — recurring each year, unlike the one-time sale.
+    attachSystems = additionalSystems;
+    attachServiceUSD = additionalSystems * (MARKET.makoAnnualService||0);
   }
 
   const stdPoolTotal = byProcedure.reduce((s,bp)=>s+bp.pool,0);
@@ -1280,10 +1284,11 @@ function sovVolumeParts(o){
   const wUpgradeNewProcUSD = applyConfidence(upgradeNewProcUSD, confUpgrade);
   const wLiftUSD = applyConfidence(liftUSD, confLift);
   const wAttachUSD = applyConfidence(attachUSD, confAttach);
-  const totalUSD = wProcedureUSD+wCapitalUSD+wServiceUSD+wUpgradeUSD+wUpgradeNewProcUSD+wLiftUSD+wAttachUSD;
+  const wAttachServiceUSD = applyConfidence(attachServiceUSD, confAttach);
+  const totalUSD = wProcedureUSD+wCapitalUSD+wServiceUSD+wUpgradeUSD+wUpgradeNewProcUSD+wLiftUSD+wAttachUSD+wAttachServiceUSD;
   // Recurring vs one-time split: procedure revenue (which already includes disposables — full ASP
   // for standard SoVs, disposables-only for retSD) and the service contract always recur; Robot
-  // Purchase (attachUSD) is always a capital sale; System Upgrade (upgradeUSD) recurs only if
+  // Purchase (attachUSD) is always a capital sale (its service contract, attachServiceUSD, recurs); System Upgrade (upgradeUSD) recurs only if
   // priced as a subscription, otherwise it's a one-time capital purchase like everything else.
   // tamAnnualUSD (ranking/scoring/roadmap) still uses the combined totalUSD — this is purely an
   // additional breakdown surfaced in the TAM Calculator.
@@ -1303,11 +1308,11 @@ function sovVolumeParts(o){
   const applicationsUSD_w = wOtherUSD;
   const otherRecurringUSD_w = wUpgradeNewProcUSD + wLiftUSD + (upgradeIsCapital ? 0 : wUpgradeUSD);
   return {convertedCases, procedureUSD, newSystems, capitalUSD, serviceUSD, upgradeUSD, upgradeNewProcUSD,
-    liftUSD, attachUSD, acqSdKneeUSD:0, acqSdHipUSD:0, totalUSD, isNewProcedure:otherEnabled,
+    liftUSD, attachUSD, attachServiceUSD, attachSystems, acqSdKneeUSD:0, acqSdHipUSD:0, totalUSD, isNewProcedure:otherEnabled,
     utilizationRate, vol: stdPoolTotal, facilityPool:0, byProcedure,
     otherCases, otherUSD, otherNewSystems, otherCapitalUSD, otherServiceUSD, otherUtilizationRate,
     recurringAnnualUSD, oneTimeCapitalUSD,
-    capitalUSD_w: oneTimeCapitalUSD, serviceUSD_w: wServiceUSD, otherRecurringUSD_w, applicationsUSD_w};
+    capitalUSD_w: oneTimeCapitalUSD, serviceUSD_w: wServiceUSD + wAttachServiceUSD, otherRecurringUSD_w, applicationsUSD_w};
 }
 function sovVolumeUSD(o){ return Math.round(sovVolumeParts(o).totalUSD); }
 // Cost Savings Calculator — fully independent of Source of Volume, for operational/internal
@@ -1474,6 +1479,9 @@ function tamChannelBreakdown(o){
         ? `${clamp(v.attachAdoptionPct,0,100)}% of ${MARKET.makoSystemsUS.toLocaleString()} Mako facilities purchase an additional robot x $${(v.attachPrice||0).toLocaleString()}, one-time${confidenceNote(attachRaw, confAttach)}`
         : `${Math.max(0,v.attachSystemCount||0).toLocaleString()} additional system${Math.max(0,v.attachSystemCount||0)===1?'':'s'} x $${(v.attachPrice||0).toLocaleString()}, one-time — decoupled from the procedure conversions above${confidenceNote(attachRaw, confAttach)}`;
       rows.push({label:'Robot Purchase (one-time)', usd: applyConfidence(attachRaw, confAttach), recurring:false, basis:attachBasis});
+      const attachSvcRaw = Math.round(p.attachServiceUSD);
+      rows.push({label:'Robot Purchase Service (recurring)', usd: applyConfidence(attachSvcRaw, confAttach), recurring:true,
+        basis:`~${round1(p.attachSystems)} additional robot${round1(p.attachSystems)===1?'':'s'} x $${MARKET.makoAnnualService.toLocaleString()}/yr service, recurring every year${confidenceNote(attachSvcRaw, confAttach)}`});
     }
     if(p.recurringAnnualUSD || p.oneTimeCapitalUSD){
       // p.recurringAnnualUSD / p.oneTimeCapitalUSD are already confidence-weighted per category
@@ -2980,7 +2988,7 @@ function fillDrawer(o){
 
           <div id="sv-attach-block" style="background:var(--white);border-radius:8px;padding:10px 12px;margin-bottom:10px;">
             <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:700;color:var(--navy);margin-bottom:${o.sovVolume.attachEnabled?'8px':'0'};">
-              <input type="checkbox" id="sv-attachEnabled" ${o.sovVolume.attachEnabled?'checked':''}> Robot Purchase${infoIconText('A capital-only revenue stream, fully decoupled from the procedure conversions above — for modeling additional Mako system placements directly rather than deriving them from case volume. Retention accounts already own hardware, so this is sized as a % of the existing US fleet buying an extra robot; Acquisition accounts aren\'t part of that fleet, so this is sized as a director-entered system count instead.')}
+              <input type="checkbox" id="sv-attachEnabled" ${o.sovVolume.attachEnabled?'checked':''}> Robot Purchase${infoIconText('Capital sale plus the recurring annual service contract on each additional robot (rate set on the Settings page), fully decoupled from the procedure conversions above — for modeling additional Mako system placements directly rather than deriving them from case volume. Retention accounts already own hardware, so this is sized as a % of the existing US fleet buying an extra robot; Acquisition accounts aren\'t part of that fleet, so this is sized as a director-entered system count instead.')}
             </label>
             <div id="sv-attach-fields" style="display:${o.sovVolume.attachEnabled?'block':'none'};">
               <div class="field-grid">
