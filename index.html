@@ -1634,7 +1634,12 @@ function revenueByYear(o){
   const buckets = revenueBuckets(o);
   const recurringRunRate = revenueRecurringTotal(buckets);
   if(!buckets.capital && !buckets.upgradesOneTime && !recurringRunRate) return null;
-  const rampYears = Math.max(1, FINANCIAL_ASSUMPTIONS.rampYears||1);
+  // Per-opportunity revenue ramp for SoV-based opportunities (blank = use the Settings default).
+  const oppRamp = o.tamMethod==='sov' ? Number(o.sovVolume?.rampYears) : 0;
+  const rampYears = Math.max(1, oppRamp>0 ? oppRamp : (FINANCIAL_ASSUMPTIONS.rampYears||1));
+  // Application Upgrade is a one-time sale per system; spread its total evenly over the chosen
+  // sales period (default 1 = all in Year 1) rather than recurring.
+  const appSalesYears = Math.max(1, Math.round(Number(o.sovVolume?.appUpgradeSalesYears)||1));
   const years = [];
   for(let t=1; t<=5; t++){
     const rampFrac = Math.min(1, t/rampYears);
@@ -1647,7 +1652,7 @@ function revenueByYear(o){
           disposable = buckets.disposable*rampFrac, other = buckets.other*rampFrac,
           costSavings = buckets.costSavings*csRampFrac,
           applications = buckets.applications*rampFrac,
-          upgrades = buckets.upgrades*rampFrac + (t===1 ? (buckets.upgradesOneTime||0) : 0);
+          upgrades = buckets.upgrades*rampFrac + (t<=appSalesYears ? (buckets.upgradesOneTime||0)/appSalesYears : 0);
     years.push({ year:t, capital, service, implant, disposable, other, costSavings, applications, upgrades,
       total: capital+service+implant+disposable+other+costSavings+applications+upgrades });
   }
@@ -1736,7 +1741,7 @@ function normalizeOpportunity(o){
   // procedure Disposable ASP instead, same as every other SoV; any leftover disposableRevenuePerCase
   // value on old saved data is simply no longer read.)
   Object.entries({
-    appUpgradeEnabled:false, appUpgradePrice:10000, appUpgradeAdoptionPct:50, appUpgradeSystemCount:0,
+    appUpgradeEnabled:false, appUpgradePrice:10000, appUpgradeAdoptionPct:50, appUpgradeSystemCount:0, appUpgradeSalesYears:1,
     upgradeEnabled:false, upgradePricingType:'capital', upgradePrice:50000, upgradeAdoptionPct:20,
     upgradeEnablesNewProcedure:false, upgradeNewProcedure:'TKA', upgradeNewProcedureCapturePct:10,
     volumeLiftEnabled:false, volumeLiftProcedure:'Both', volumeLiftPct:5,
@@ -2666,7 +2671,7 @@ function renderDashboard(){
     });
   drawRevenueBarChart('dash-revenue', revenueItems);
   const dashRevenueInfo = document.getElementById('dash-revenue-info');
-  if(dashRevenueInfo) dashRevenueInfo.title = `Every opportunity, ranked by Composite Score. The only requirement to appear here is a dollarized TAM — either a Source of Volume selection or a Manual $ Entry (by Capital/Applications/Service/Upgrades). Year 1 of each bar = that opportunity's own first year of revenue (not a shared calendar window), so opportunities are still compared apples-to-apples. Recurring revenue (Implant/Disposable/Applications/Service/Upgrades/Other) ramps linearly to full run-rate over ${FINANCIAL_ASSUMPTIONS.rampYears} years; one-time Capital lands entirely in Year 1. This is nominal 5-year revenue potential only — no discounting or payback modeling.`;
+  if(dashRevenueInfo) dashRevenueInfo.title = `Every opportunity, ranked by Composite Score. The only requirement to appear here is a dollarized TAM — either a Source of Volume selection or a Manual $ Entry (by Capital/Applications/Service/Upgrades). Year 1 of each bar = that opportunity's own first year of revenue (not a shared calendar window), so opportunities are still compared apples-to-apples. Recurring revenue (Implant/Disposable/Applications/Service/Upgrades/Other) ramps linearly to full run-rate over ${FINANCIAL_ASSUMPTIONS.rampYears} years (Source of Volume opportunities can override this with their own Revenue Ramp-Up); one-time Capital lands entirely in Year 1, and one-time Application Upgrade sales are spread over their own Sales Period. This is nominal 5-year revenue potential only — no discounting or payback modeling.`;
   const noDataCount = revenueItems.filter(it=>it.noData).length;
   $('#dash-revenue-note').textContent = noDataCount>0
     ? `${revenueItems.length-noDataCount} of ${revenueItems.length} opportunities have revenue data; ${noDataCount} still need a dollarized TAM (Source of Volume or Manual $ Entry).`
@@ -2905,7 +2910,7 @@ function openNewOpp(){
     // copied from another opportunity.
     sovVolume:{procedures: Object.fromEntries(SOV_PROCEDURE_KEYS.map(pk=>[pk,{enabled:false, eligibilityPct:100, captureRatePct:5}])),
       eligibilityPct:100, captureRatePct:5, customProcedureName:'', customVolume:0, customASP:5000,
-      appUpgradeEnabled:false, appUpgradePrice:10000, appUpgradeAdoptionPct:50, appUpgradeSystemCount:0,
+      appUpgradeEnabled:false, appUpgradePrice:10000, appUpgradeAdoptionPct:50, appUpgradeSystemCount:0, appUpgradeSalesYears:1,
       upgradeEnabled:false, upgradePricingType:'capital', upgradePrice:50000, upgradeAdoptionPct:20, upgradeEnablesNewProcedure:false, upgradeNewProcedure:'TKA', upgradeNewProcedureCapturePct:10,
       volumeLiftEnabled:false, volumeLiftProcedure:'Both', volumeLiftPct:5,
       attachEnabled:false, attachPrice:800000, attachAdoptionPct:20, attachSystemCount:0,
@@ -3134,6 +3139,11 @@ function fillDrawer(o){
         </div>
 
           <div id="sv-appupgrade-wrap" style="display:none;">
+          <div id="sv-ramp-block" style="background:var(--white);border-radius:8px;padding:10px 12px;margin-bottom:10px;">
+            <div class="field-row" style="margin:0;"><label>Revenue Ramp-Up (years)${infoIconText('Years for this opportunity\'s recurring revenue (procedures, service, etc.) to reach its full annual run-rate, on a straight linear ramp. Leave on the default to use the Settings-page ramp; set a longer ramp for slow-building launches where adopters accumulate over time. One-time capital is unaffected.')}</label>
+              <select id="sv-rampYears"><option value="0" ${!(o.sovVolume.rampYears>0)?'selected':''}>Settings default (${FINANCIAL_ASSUMPTIONS.rampYears} yrs)</option>${[1,2,3,4,5,6,7,8].map(n=>`<option value="${n}" ${Number(o.sovVolume.rampYears)===n?'selected':''}>${n} year${n===1?'':'s'}</option>`).join('')}</select>
+            </div>
+          </div>
           <div id="sv-appupgrade-block" style="background:var(--white);border-radius:8px;padding:10px 12px;margin-bottom:10px;">
             <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:700;color:var(--navy);margin-bottom:${o.sovVolume.appUpgradeEnabled?'8px':'0'};">
               <input type="checkbox" id="sv-appUpgradeEnabled" ${o.sovVolume.appUpgradeEnabled?'checked':''}> Application Upgrade (one-time software fee)${infoIconText('One-time fee to upgrade the Mako software, independent of procedure volume. Retention–Stimulate Demand sizes it as a % of the existing US Mako fleet; every other Source of Volume uses a director-entered count of systems upgrading, since those accounts are not drawn from that fleet.')}
@@ -3147,6 +3157,9 @@ function fillDrawer(o){
               </div>
               <div class="field-row" id="sv-appupgrade-count-row" style="display:${o.sov==='retSD'?'none':'block'};"><label>Number of Mako Systems Upgrading</label>
                 <input type="text" id="sv-appUpgradeSystemCount" value="${o.sovVolume.appUpgradeSystemCount||0}" placeholder="e.g. 50">
+              </div>
+              <div class="field-row"><label>Sales Period (years)${infoIconText('Years over which these one-time upgrade sales occur. The total is spread evenly across this period (1 = all in Year 1). Only the years that fall inside the 5-year window count toward the 5-year total.')}</label>
+                <select id="sv-appUpgradeSalesYears">${[1,2,3,4,5,6,7,8].map(n=>`<option value="${n}" ${Number(o.sovVolume.appUpgradeSalesYears||1)===n?'selected':''}>${n} year${n===1?'':'s'}</option>`).join('')}</select>
               </div>
               ${confidenceSelectHtml('sv-confidence-appUpgrade', 'Confidence', sovCatConfidence(o.sovVolume,'appUpgrade'))}
             </div>
@@ -3385,6 +3398,8 @@ function fillDrawer(o){
     appUpgradePrice: Number(String($('#sv-appUpgradePrice').value).replace(/,/g,''))||0,
     appUpgradeAdoptionPct: Number($('#sv-appUpgradeAdoptionPct').value),
     appUpgradeSystemCount: Number(String($('#sv-appUpgradeSystemCount').value).replace(/,/g,''))||0,
+    appUpgradeSalesYears: Number($('#sv-appUpgradeSalesYears').value)||1,
+    rampYears: Number($('#sv-rampYears').value)||0,
     upgradeEnabled: $('#sv-upgradeEnabled').checked,
       upgradePricingType: $('#sv-upgradePricingType').value,
       upgradePrice: Number(String($('#sv-upgradePrice').value).replace(/,/g,''))||0,
@@ -3701,6 +3716,8 @@ function saveDrawer(id){
     appUpgradePrice: Number(String($('#sv-appUpgradePrice').value).replace(/,/g,''))||0,
     appUpgradeAdoptionPct: Number($('#sv-appUpgradeAdoptionPct').value),
     appUpgradeSystemCount: Number(String($('#sv-appUpgradeSystemCount').value).replace(/,/g,''))||0,
+    appUpgradeSalesYears: Number($('#sv-appUpgradeSalesYears').value)||1,
+    rampYears: Number($('#sv-rampYears').value)||0,
     upgradeEnabled: $('#sv-upgradeEnabled').checked,
     upgradePricingType: $('#sv-upgradePricingType').value,
     upgradePrice: Number(String($('#sv-upgradePrice').value).replace(/,/g,''))||0,
