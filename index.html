@@ -1145,7 +1145,7 @@ function confidenceSelectHtml(id, label, value){
 function sovVolumeParts(o){
   const v = o.sovVolume || {};
   const zero = {convertedCases:0, procedureUSD:0, newSystems:0, capitalUSD:0, serviceUSD:0,
-    upgradeUSD:0, upgradeNewProcUSD:0, liftUSD:0, attachUSD:0, attachServiceUSD:0, attachSystems:0, acqSdKneeUSD:0, acqSdHipUSD:0,
+    upgradeUSD:0, upgradeNewProcUSD:0, liftUSD:0, attachUSD:0, attachServiceUSD:0, attachSystems:0, appUpgradeUSD:0, appUpgradeUSD_w:0, acqSdKneeUSD:0, acqSdHipUSD:0,
     totalUSD:0, isNewProcedure:false, utilizationRate:0, vol:0, facilityPool:0, byProcedure:[],
     otherCases:0, otherUSD:0, recurringAnnualUSD:0, oneTimeCapitalUSD:0};
   if(o.tamMethod!=='sov' || !o.sov) return zero;
@@ -1249,8 +1249,13 @@ function sovVolumeParts(o){
   const capitalUSD = capitalUSDStd + otherCapitalUSD;
   const serviceUSD = serviceUSDStd + otherServiceUSD;
 
-  let upgradeUSD=0, upgradeNewProcUSD=0, liftUSD=0, attachUSD=0, attachServiceUSD=0, attachSystems=0;
+  let upgradeUSD=0, upgradeNewProcUSD=0, liftUSD=0, attachUSD=0, attachServiceUSD=0, attachSystems=0, appUpgradeUSD=0;
   if(o.sov === 'retSD'){
+    // Application (software) Upgrade: a one-time fee paid by the share of the installed Mako fleet
+    // that upgrades its software — no new procedure volume, no recurring stream.
+    if(v.appUpgradeEnabled){
+      appUpgradeUSD = clamp(v.appUpgradeAdoptionPct,0,100)/100 * MARKET.makoSystemsUS * (v.appUpgradePrice||0);
+    }
     if(v.upgradeEnabled){
       const upgradedSystems = clamp(v.upgradeAdoptionPct,0,100)/100 * MARKET.makoSystemsUS;
       upgradeUSD = upgradedSystems * (v.upgradePrice||0);
@@ -1312,7 +1317,8 @@ function sovVolumeParts(o){
   const wLiftUSD = applyConfidence(liftUSD, confLift);
   const wAttachUSD = applyConfidence(attachUSD, confAttach);
   const wAttachServiceUSD = applyConfidence(attachServiceUSD, confAttach);
-  const totalUSD = wProcedureUSD+wCapitalUSD+wServiceUSD+wUpgradeUSD+wUpgradeNewProcUSD+wLiftUSD+wAttachUSD+wAttachServiceUSD;
+  const wAppUpgradeUSD = applyConfidence(appUpgradeUSD, sovCatConfidence(v, 'appUpgrade'));
+  const totalUSD = wProcedureUSD+wCapitalUSD+wServiceUSD+wUpgradeUSD+wUpgradeNewProcUSD+wLiftUSD+wAttachUSD+wAttachServiceUSD+wAppUpgradeUSD;
   // Recurring vs one-time split: procedure revenue (which already includes disposables — full ASP
   // for standard SoVs, disposables-only for retSD) and the service contract always recur; Robot
   // Purchase (attachUSD) is always a capital sale (its service contract, attachServiceUSD, recurs); System Upgrade (upgradeUSD) recurs only if
@@ -1320,7 +1326,7 @@ function sovVolumeParts(o){
   // tamAnnualUSD (ranking/scoring/roadmap) still uses the combined totalUSD — this is purely an
   // additional breakdown surfaced in the TAM Calculator.
   const upgradeIsCapital = v.upgradePricingType !== 'subscription';
-  const oneTimeCapitalUSD = wCapitalUSD + wAttachUSD + (upgradeIsCapital ? wUpgradeUSD : 0);
+  const oneTimeCapitalUSD = wCapitalUSD + wAttachUSD + (upgradeIsCapital ? wUpgradeUSD : 0) + wAppUpgradeUSD;
   const recurringAnnualUSD = totalUSD - oneTimeCapitalUSD;
   // Confidence-weighted category subtotals, exposed for the Revenue by Opportunity chart
   // (revenueBuckets()). capitalUSD_w mirrors oneTimeCapitalUSD (system capital + Robot Purchase +
@@ -1335,11 +1341,11 @@ function sovVolumeParts(o){
   const applicationsUSD_w = wOtherUSD;
   const otherRecurringUSD_w = wUpgradeNewProcUSD + wLiftUSD + (upgradeIsCapital ? 0 : wUpgradeUSD);
   return {convertedCases, procedureUSD, newSystems, capitalUSD, serviceUSD, upgradeUSD, upgradeNewProcUSD,
-    liftUSD, attachUSD, attachServiceUSD, attachSystems, acqSdKneeUSD:0, acqSdHipUSD:0, totalUSD, isNewProcedure:otherEnabled,
+    liftUSD, attachUSD, attachServiceUSD, attachSystems, appUpgradeUSD, appUpgradeUSD_w: wAppUpgradeUSD, acqSdKneeUSD:0, acqSdHipUSD:0, totalUSD, isNewProcedure:otherEnabled,
     utilizationRate, vol: stdPoolTotal, facilityPool:0, byProcedure,
     otherCases, otherUSD, otherNewSystems, otherCapitalUSD, otherServiceUSD, otherUtilizationRate,
     recurringAnnualUSD, oneTimeCapitalUSD,
-    capitalUSD_w: oneTimeCapitalUSD, serviceUSD_w: wServiceUSD + wAttachServiceUSD, otherRecurringUSD_w, applicationsUSD_w};
+    capitalUSD_w: oneTimeCapitalUSD - wAppUpgradeUSD, serviceUSD_w: wServiceUSD + wAttachServiceUSD, otherRecurringUSD_w, applicationsUSD_w};
 }
 function sovVolumeUSD(o){ return Math.round(sovVolumeParts(o).totalUSD); }
 // Cost Savings Calculator — fully independent of Source of Volume, for operational/internal
@@ -1491,6 +1497,12 @@ function tamChannelBreakdown(o){
           basis:`Upgraded systems x ${round1(MARKET.casesPerSystemPerYear)} cases/system/yr x ${clamp(v.upgradeNewProcedureCapturePct,0,100)}% capture x $${sovProcedureASP(v.upgradeNewProcedure||'TKA').toLocaleString()}/case, recurring${confidenceNote(newProcRaw, confUpgrade)}`});
       }
     }
+    if(o.sov==='retSD' && v.appUpgradeEnabled){
+      const confApp = sovCatConfidence(v, 'appUpgrade');
+      const appRaw = Math.round(p.appUpgradeUSD);
+      rows.push({label:'Application Upgrade (one-time)', usd: applyConfidence(appRaw, confApp), recurring:false,
+        basis:`${clamp(v.appUpgradeAdoptionPct,0,100)}% of ${MARKET.makoSystemsUS.toLocaleString()} Mako systems x $${(v.appUpgradePrice||0).toLocaleString()} one-time software upgrade fee${confidenceNote(appRaw, confApp)}`});
+    }
     if(o.sov==='retSD' && v.volumeLiftEnabled){
       const liftRaw = Math.round(p.liftUSD);
       const baseVolLabel = v.volumeLiftProcedure==='TKA' ? `${MARKET.currentMakoKneeVolume.toLocaleString()} current Mako knee cases/yr`
@@ -1516,7 +1528,7 @@ function tamChannelBreakdown(o){
       rows.push({label:'Recurring Annual Subtotal', usd: Math.round(p.recurringAnnualUSD), recurring:true, isSubtotal:true,
         basis:'Procedure/disposables revenue + service + subscription-priced extras — repeats every year.'});
       rows.push({label:'One-Time Capital Subtotal', usd: Math.round(p.oneTimeCapitalUSD), recurring:false, isSubtotal:true,
-        basis:'System capital + Robot Purchase + capital-priced System Upgrade — counted once, not every year.'});
+        basis:'System capital + Robot Purchase + capital-priced System Upgrade + Application Upgrade — counted once, not every year.'});
     }
     return rows;
   }
@@ -1539,7 +1551,7 @@ function tamChannelBreakdown(o){
 // to computeTAM(o) (see test suite) — nothing is double-counted or dropped, it's purely a re-slice
 // of the same total for charting.
 function revenueBuckets(o){
-  const zero = { capital:0, service:0, implant:0, disposable:0, other:0, costSavings:0, applications:0, upgrades:0 };
+  const zero = { capital:0, service:0, implant:0, disposable:0, other:0, costSavings:0, applications:0, upgrades:0, upgradesOneTime:0 };
   if(o.tamMethod==='savings'){
     if(!o.costSavings?.enabled) return zero;
     return { ...zero, costSavings: applyConfidence(chSavingsUSD(o.costSavings), o.costSavings.confidence) };
@@ -1586,6 +1598,7 @@ function revenueBuckets(o){
     implant, disposable,
     applications: p.applicationsUSD_w||0,
     other: p.otherRecurringUSD_w||0,
+    upgradesOneTime: p.appUpgradeUSD_w||0, // one-time software upgrade fee: lands in Year 1 (Upgrades category), never ramps/recurs
     costSavings: 0,
   };
 }
@@ -1605,7 +1618,7 @@ function revenueRecurringTotal(buckets){
 function revenueByYear(o){
   const buckets = revenueBuckets(o);
   const recurringRunRate = revenueRecurringTotal(buckets);
-  if(!buckets.capital && !recurringRunRate) return null;
+  if(!buckets.capital && !buckets.upgradesOneTime && !recurringRunRate) return null;
   const rampYears = Math.max(1, FINANCIAL_ASSUMPTIONS.rampYears||1);
   const years = [];
   for(let t=1; t<=5; t++){
@@ -1618,7 +1631,8 @@ function revenueByYear(o){
     const service = buckets.service*rampFrac, implant = buckets.implant*rampFrac,
           disposable = buckets.disposable*rampFrac, other = buckets.other*rampFrac,
           costSavings = buckets.costSavings*csRampFrac,
-          applications = buckets.applications*rampFrac, upgrades = buckets.upgrades*rampFrac;
+          applications = buckets.applications*rampFrac,
+          upgrades = buckets.upgrades*rampFrac + (t===1 ? (buckets.upgradesOneTime||0) : 0);
     years.push({ year:t, capital, service, implant, disposable, other, costSavings, applications, upgrades,
       total: capital+service+implant+disposable+other+costSavings+applications+upgrades });
   }
@@ -1707,6 +1721,7 @@ function normalizeOpportunity(o){
   // procedure Disposable ASP instead, same as every other SoV; any leftover disposableRevenuePerCase
   // value on old saved data is simply no longer read.)
   Object.entries({
+    appUpgradeEnabled:false, appUpgradePrice:10000, appUpgradeAdoptionPct:50,
     upgradeEnabled:false, upgradePricingType:'capital', upgradePrice:50000, upgradeAdoptionPct:20,
     upgradeEnablesNewProcedure:false, upgradeNewProcedure:'TKA', upgradeNewProcedureCapturePct:10,
     volumeLiftEnabled:false, volumeLiftProcedure:'Both', volumeLiftPct:5,
@@ -1760,7 +1775,7 @@ function normalizeOpportunity(o){
     const legacyConf = (typeof o.sovVolume.confidence === 'string' && o.sovVolume.confidence) ? o.sovVolume.confidence : 'high';
     o.sovVolume.confidence = { procedure: legacyConf, upgrade: legacyConf, volumeLift: legacyConf, attach: legacyConf };
   }
-  ['upgrade','volumeLift','attach'].forEach(cat=>{ if(o.sovVolume.confidence[cat]===undefined) o.sovVolume.confidence[cat] = 'high'; });
+  ['upgrade','appUpgrade','volumeLift','attach'].forEach(cat=>{ if(o.sovVolume.confidence[cat]===undefined) o.sovVolume.confidence[cat] = 'high'; });
   // One-time migration: the "Procedure Volume" confidence bucket above (one blanket rating for
   // every checked procedure + Other + the shared new-system capital/service estimate) splits
   // further — each of the 7 standard procedures now gets its own confidence, stored alongside its
@@ -2854,6 +2869,7 @@ function openNewOpp(){
     // copied from another opportunity.
     sovVolume:{procedures: Object.fromEntries(SOV_PROCEDURE_KEYS.map(pk=>[pk,{enabled:false, eligibilityPct:100, captureRatePct:5}])),
       eligibilityPct:100, captureRatePct:5, customProcedureName:'', customVolume:0, customASP:5000,
+      appUpgradeEnabled:false, appUpgradePrice:10000, appUpgradeAdoptionPct:50,
       upgradeEnabled:false, upgradePricingType:'capital', upgradePrice:50000, upgradeAdoptionPct:20, upgradeEnablesNewProcedure:false, upgradeNewProcedure:'TKA', upgradeNewProcedureCapturePct:10,
       volumeLiftEnabled:false, volumeLiftProcedure:'Both', volumeLiftPct:5,
       attachEnabled:false, attachPrice:800000, attachAdoptionPct:20, attachSystemCount:0,
@@ -3121,6 +3137,21 @@ function fillDrawer(o){
             </div>
           </div>
 
+          <div id="sv-appupgrade-block" style="background:var(--white);border-radius:8px;padding:10px 12px;margin-bottom:10px;">
+            <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:700;color:var(--navy);margin-bottom:${o.sovVolume.appUpgradeEnabled?'8px':'0'};">
+              <input type="checkbox" id="sv-appUpgradeEnabled" ${o.sovVolume.appUpgradeEnabled?'checked':''}> Application Upgrade (one-time software fee)
+            </label>
+            <div id="sv-appupgrade-fields" style="display:${o.sovVolume.appUpgradeEnabled?'block':'none'};">
+              <div class="field-row"><label>One-Time Upgrade Fee ($)</label>
+                <input type="text" id="sv-appUpgradePrice" value="${(o.sovVolume.appUpgradePrice??10000).toLocaleString()}">
+              </div>
+              <div class="field-row"><label>Adoption % of ${MARKET.makoSystemsUS.toLocaleString()} Mako Systems <span id="sv-appUpgradeAdoptionPct-val">${o.sovVolume.appUpgradeAdoptionPct??50}</span>%</label>
+                <input type="range" min="0" max="100" step="1" id="sv-appUpgradeAdoptionPct" value="${o.sovVolume.appUpgradeAdoptionPct??50}" style="width:100%;accent-color:var(--blue);">
+              </div>
+              ${confidenceSelectHtml('sv-confidence-appUpgrade', 'Confidence', sovCatConfidence(o.sovVolume,'appUpgrade'))}
+            </div>
+          </div>
+
           <div id="sv-lift-block" style="background:var(--white);border-radius:8px;padding:10px 12px;margin-bottom:10px;">
             <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:700;color:var(--navy);margin-bottom:${o.sovVolume.volumeLiftEnabled?'8px':'0'};">
               <input type="checkbox" id="sv-volumeLiftEnabled" ${o.sovVolume.volumeLiftEnabled?'checked':''}> Volume Lift
@@ -3308,7 +3339,10 @@ function fillDrawer(o){
       customProcedureName: $('#sv-customProcedureName').value,
       customVolume: Number(String($('#sv-customVolume').value).replace(/,/g,''))||0,
       customASP: Number(String($('#sv-customASP').value).replace(/,/g,''))||0,
-      upgradeEnabled: $('#sv-upgradeEnabled').checked,
+      appUpgradeEnabled: $('#sv-appUpgradeEnabled').checked,
+    appUpgradePrice: Number(String($('#sv-appUpgradePrice').value).replace(/,/g,''))||0,
+    appUpgradeAdoptionPct: Number($('#sv-appUpgradeAdoptionPct').value),
+    upgradeEnabled: $('#sv-upgradeEnabled').checked,
       upgradePricingType: $('#sv-upgradePricingType').value,
       upgradePrice: Number(String($('#sv-upgradePrice').value).replace(/,/g,''))||0,
       upgradeAdoptionPct: Number($('#sv-upgradeAdoptionPct').value),
@@ -3333,6 +3367,7 @@ function fillDrawer(o){
       capital: $('#sv-confidence-capital').value,
       other: $('#sv-confidence-other').value,
       upgrade: $('#sv-confidence-upgrade').value,
+      appUpgrade: $('#sv-confidence-appUpgrade').value,
       volumeLift: $('#sv-confidence-volumeLift').value,
       attach: $('#sv-confidence-attach').value,
     };
@@ -3368,6 +3403,9 @@ function fillDrawer(o){
   }
   function updateSovUpgradeVisibility(){
     $('#sv-upgrade-fields').style.display = $('#sv-upgradeEnabled').checked ? 'block' : 'none';
+  }
+  function updateSovAppUpgradeVisibility(){
+    $('#sv-appupgrade-fields').style.display = $('#sv-appUpgradeEnabled').checked ? 'block' : 'none';
   }
   function updateSovUpgradeNewProcVisibility(){
     $('#sv-upgrade-newproc-fields').style.display = $('#sv-upgradeEnablesNewProcedure').checked ? 'block' : 'none';
@@ -3413,6 +3451,7 @@ function fillDrawer(o){
   });
   $('#sv-attachEnabled').addEventListener('change', ()=>{ updateSovAttachVisibility(); updateTamPreview(); });
   $('#sv-upgradeEnabled').addEventListener('change', ()=>{ updateSovUpgradeVisibility(); updateTamPreview(); });
+  $('#sv-appUpgradeEnabled').addEventListener('change', ()=>{ updateSovAppUpgradeVisibility(); updateTamPreview(); });
   $('#sv-upgradeEnablesNewProcedure').addEventListener('change', ()=>{ updateSovUpgradeNewProcVisibility(); updateTamPreview(); });
   $('#sv-volumeLiftEnabled').addEventListener('change', ()=>{ updateSovLiftVisibility(); updateTamPreview(); });
   $('#f-sov').addEventListener('change', ()=>{ updateSovFieldsVisibility(); updateTamPreview(); });
@@ -3611,6 +3650,9 @@ function saveDrawer(id){
     customProcedureName: $('#sv-customProcedureName').value,
     customVolume: Number(String($('#sv-customVolume').value).replace(/,/g,''))||0,
     customASP: Number(String($('#sv-customASP').value).replace(/,/g,''))||0,
+    appUpgradeEnabled: $('#sv-appUpgradeEnabled').checked,
+    appUpgradePrice: Number(String($('#sv-appUpgradePrice').value).replace(/,/g,''))||0,
+    appUpgradeAdoptionPct: Number($('#sv-appUpgradeAdoptionPct').value),
     upgradeEnabled: $('#sv-upgradeEnabled').checked,
     upgradePricingType: $('#sv-upgradePricingType').value,
     upgradePrice: Number(String($('#sv-upgradePrice').value).replace(/,/g,''))||0,
@@ -3632,6 +3674,7 @@ function saveDrawer(id){
       capital: $('#sv-confidence-capital').value,
       other: $('#sv-confidence-other').value,
       upgrade: $('#sv-confidence-upgrade').value,
+      appUpgrade: $('#sv-confidence-appUpgrade').value,
       volumeLift: $('#sv-confidence-volumeLift').value,
       attach: $('#sv-confidence-attach').value,
     },
