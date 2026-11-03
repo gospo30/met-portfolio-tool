@@ -1234,14 +1234,14 @@ function sovVolumeParts(o){
   const convertedCases = stdConvertedCases + otherCases;
   procedureUSD += otherUSD;
 
-  // Standard (non-Other) procedures share one physical Mako system per account, so their implied
-  // new-system need is computed once from their COMBINED converted-case volume — not once per
-  // procedure, which would double/triple-count hardware for an account converting on more than
-  // one procedure at a time. "Other" keeps its own independent capital calc above (it can specify
-  // its own utilization rate) and is summed in additively.
-  const applyCapitalStd = !isRetSd;
+  // No SoV on this generic path (retSD, acqES, retES) auto-adds new-system capital or service from
+  // converted case volume anymore. Converting a case no longer implies a new placement; modeling
+  // additional Mako systems (capital + their annual service) is done explicitly via the decoupled
+  // Robot Purchase component. (acqSD returns earlier with its own facility-based placement calc.)
+  // The capital/service fields below are kept (always 0 for standard procedures) so every
+  // consumer of sovVolumeParts() keeps its shape.
   const utilizationRate = MARKET.casesPerSystemPerYear;
-  const newSystemsStd = applyCapitalStd ? stdConvertedCases / (utilizationRate||1) : 0;
+  const newSystemsStd = 0;
   const capitalUSDStd = newSystemsStd*MARKET.makoSystemPrice;
   const serviceUSDStd = newSystemsStd*MARKET.makoAnnualService;
 
@@ -3006,7 +3006,7 @@ function fillDrawer(o){
           ${['THA','PartialHip','RevisionHip','ResurfacingHip'].map(pk=>sovProcedureRowHtml(o,pk)).join('')}
           <p class="subtle" style="margin:8px 0 10px;" id="sv-capital-note"></p>
 
-          <div id="sv-confidence-capital-row" style="display:${o.sov==='retSD'?'none':'block'};margin-bottom:10px;">
+          <div id="sv-confidence-capital-row" style="display:none;margin-bottom:10px;">
             ${confidenceSelectHtml('sv-confidence-capital', 'New System Capital &amp; Service Confidence', sovCatConfidence(o.sovVolume,'capital'))}
           </div>
 
@@ -3388,8 +3388,9 @@ function fillDrawer(o){
     // service estimate — retSD never generates any (it already owns hardware), so it's hidden there;
     // it lives inside sv-base-fields so it's already hidden for acqSD (which has its own dedicated
     // capital confidence in its own block) and when no SoV is chosen yet.
+    // Standard procedures no longer generate any capital/service on any SoV, so it's always hidden.
     const capRow = document.getElementById('sv-confidence-capital-row');
-    if(capRow) capRow.style.display = sov==='retSD' ? 'none' : 'block';
+    if(capRow) capRow.style.display = 'none';
     updateSovDisposableVisibility();
   }
   function updateCostSavingsVisibility(){
@@ -3513,7 +3514,7 @@ function fillDrawer(o){
     if(form.sov==='retSD'){
       note.textContent = `Pools (FY'25 procedure database) — ${poolBits}. This pool already buys Stryker implants and already owns Mako hardware, so only disposable revenue per converted case is counted here — no new system capital or service is auto-added. To model buying an additional robot or a software upgrade at these accounts, use the components below.`;
     } else {
-      note.textContent = `Pools (FY'25 procedure database) — ${poolBits}. Includes new Mako system capital (${capitalBit}) + annual service (${serviceBit}) implied by the combined converted case volume across the checked procedures above, at current fleet utilization (~${round1(MARKET.casesPerSystemPerYear)} cases/system/yr).`;
+      note.textContent = `Pools (FY'25 procedure database) — ${poolBits}. Counts procedure revenue only (implant + disposables) — no new system capital or service is auto-added from converted cases. To model additional Mako system placements (capital + annual service), use Robot Purchase below.`;
     }
   }
   // Acquisition–Stimulate Demand's own pool-sizing note (parallel to updateSovCapitalNote above,
