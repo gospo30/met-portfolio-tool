@@ -1610,10 +1610,14 @@ function revenueByYear(o){
   const years = [];
   for(let t=1; t<=5; t++){
     const rampFrac = Math.min(1, t/rampYears);
+    // Cost savings ramp on their own per-opportunity schedule (internal rollout speed, not market
+    // adoption), defaulting to 2 years; everything else uses the global revenue ramp above.
+    const csRampYears = Math.max(1, Number(o.costSavings?.rampYears) || 2);
+    const csRampFrac = Math.min(1, t/csRampYears);
     const capital = t===1 ? buckets.capital : 0;
     const service = buckets.service*rampFrac, implant = buckets.implant*rampFrac,
           disposable = buckets.disposable*rampFrac, other = buckets.other*rampFrac,
-          costSavings = buckets.costSavings*rampFrac,
+          costSavings = buckets.costSavings*csRampFrac,
           applications = buckets.applications*rampFrac, upgrades = buckets.upgrades*rampFrac;
     years.push({ year:t, capital, service, implant, disposable, other, costSavings, applications, upgrades,
       total: capital+service+implant+disposable+other+costSavings+applications+upgrades });
@@ -1783,7 +1787,8 @@ function normalizeOpportunity(o){
   SOV_PROCEDURE_KEYS.forEach(pk=>{
     if(o.sovVolume.acqSdConfidence[pk] === undefined) o.sovVolume.acqSdConfidence[pk] = o.sovVolume.confidence.capital;
   });
-  if(!o.costSavings) o.costSavings = { basis:'perSystem', customVolume:0, customVolumeLabel:'', unitSavings:5000, adoptionPct:100, confidence:'high', enabled:false };
+  if(!o.costSavings) o.costSavings = { basis:'perSystem', customVolume:0, customVolumeLabel:'', unitSavings:5000, adoptionPct:100, confidence:'high', rampYears:2, enabled:false };
+  if(o.costSavings.rampYears===undefined || o.costSavings.rampYears===null) o.costSavings.rampYears = 2; // per-opportunity cost-savings ramp (years to full run-rate)
   if(o.tamManualConfidence===undefined) o.tamManualConfidence = 'high';
   // Manual $ Entry TAM is built directly from 5 category $ fields — Capital and Service map onto
   // the chart's existing Capital/Service buckets; Applications, Procedure, and Upgrades are their
@@ -2854,7 +2859,7 @@ function openNewOpp(){
       attachEnabled:false, attachPrice:800000, attachAdoptionPct:20, attachSystemCount:0,
       acqSdFacilityPct:10, acqSdKneeCapturePct:20, acqSdHipCapturePct:20,
       confidence:'high'},
-    costSavings:{enabled:false, basis:'perSystem', customVolume:0, customVolumeLabel:'', unitSavings:5000, adoptionPct:100, confidence:'high'},
+    costSavings:{enabled:false, basis:'perSystem', customVolume:0, customVolumeLabel:'', unitSavings:5000, adoptionPct:100, confidence:'high', rampYears:2},
     tamRationale:'Not yet dollarized.',
   };
   DATA.push(o);
@@ -3164,6 +3169,11 @@ function fillDrawer(o){
         <div class="field-row"><label>% of Volume Realizing Savings (rollout/adoption) <span id="cs-adoptionPct-val">${o.costSavings.adoptionPct}</span>%</label>
           <input type="range" min="0" max="100" step="5" id="cs-adoptionPct" value="${o.costSavings.adoptionPct}" style="width:100%;accent-color:var(--blue);">
         </div>
+        <div class="field-row"><label>Ramp to Full Savings (years)${infoIconText('How many years after launch it takes for these savings to reach their full annual run-rate, on a straight linear ramp (e.g. 2 years = 50% in Year 1, 100% from Year 2). Internal savings usually roll out faster than market-driven revenue, so this is set per opportunity and is independent of the Settings-page revenue ramp.')}</label>
+          <select id="cs-rampYears" style="font-size:12px;padding:3px 6px;">
+            ${[1,2,3,4,5].map(n=>`<option value="${n}" ${Number(o.costSavings.rampYears||2)===n?'selected':''}>${n} year${n===1?'':'s'}</option>`).join('')}
+          </select>
+        </div>
         <label style="display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--gray-700);font-weight:400;">
           Confidence
           <select id="cs-confidence" style="font-size:11.5px;padding:2px 4px;">
@@ -3336,6 +3346,7 @@ function fillDrawer(o){
       unitSavings: Number(String($('#cs-unitSavings').value).replace(/,/g,''))||0,
       adoptionPct: Number($('#cs-adoptionPct').value),
       confidence: $('#cs-confidence').value,
+      rampYears: Number($('#cs-rampYears').value) || 2,
     };
   }
   function updateSovProcVisibility(){
@@ -3633,6 +3644,7 @@ function saveDrawer(id){
     unitSavings: Number(String($('#cs-unitSavings').value).replace(/,/g,''))||0,
     adoptionPct: Number($('#cs-adoptionPct').value),
     confidence: $('#cs-confidence').value,
+    rampYears: Number($('#cs-rampYears').value) || 2,
   };
   o.tamManualConfidence = $('#tam-manual-confidence').value;
   o.manualRevenue = {
@@ -4320,7 +4332,7 @@ function renderSettings(){
       <div class="field-row"><label>Medium (%)</label><input type="text" id="cf-medium" value="${Math.round(CONFIDENCE_MULTIPLIER.medium*100)}"></div>
       <div class="field-row"><label>Low (%)</label><input type="text" id="cf-low" value="${Math.round(CONFIDENCE_MULTIPLIER.low*100)}"></div>
     </div></div>`;
-  const finInfo = "Assumption behind the Dashboard's Revenue by Opportunity chart. Ramp-Up Years is how long recurring revenue (Implant/Disposable/Service/Other) takes to reach full run-rate after launch, on a straight linear ramp. One-time Capital is never ramped — it's recognized entirely in Year 1. (This tool shows nominal 5-year revenue potential only — no discounting or payback modeling; that's handled by Finance separately.)";
+  const finInfo = "Assumption behind the Dashboard's Revenue by Opportunity chart. Ramp-Up Years is how long recurring revenue (Implant/Disposable/Service/Other) takes to reach full run-rate after launch, on a straight linear ramp (Cost Savings have their own per-opportunity ramp, set in each opportunity's cost-savings section, default 2 years). One-time Capital is never ramped — it's recognized entirely in Year 1. (This tool shows nominal 5-year revenue potential only — no discounting or payback modeling; that's handled by Finance separately.)";
   const finHtml = `<div class="card section"><h3 style="margin-bottom:10px;">Revenue Timing Assumptions${infoIconText(finInfo)}</h3>
     <div class="field-grid">
       <div class="field-row"><label>Revenue Ramp-Up (years)</label><input type="text" id="fin-ramp" value="${FINANCIAL_ASSUMPTIONS.rampYears}"></div>
