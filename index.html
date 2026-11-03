@@ -480,9 +480,17 @@ svg text{font-family:var(--font-headline);}
           <div id="offenseBars"></div>
         </div>
       </div>
-      <div class="card section">
-        <h3 style="margin-bottom:10px;">Portfolio Map (Impact vs. Ability to Win, colored by Category)</h3>
-        <div class="svg-wrap"><div id="portfolioMap"></div></div>
+      <div class="grid grid-2 section">
+        <div class="card">
+          <h3 style="margin-bottom:10px;">Big Picture Source of Volume<span class="info-icon" id="rr-info-sov">i</span></h3>
+          <p class="subtle" style="margin:-4px 0 10px;">Every revenue-generating opportunity plotted by its assigned Source of Volume — the Big Picture Partners 4-quadrant growth framework. Cost-savings opportunities and linked components don't have an SoV and aren't shown.</p>
+          <div class="svg-wrap"><div id="sovQuadrantChart"></div></div>
+        </div>
+        <div class="card">
+          <h3 style="margin-bottom:10px;">Source of Volume Pool Depletion<span class="info-icon" id="pf-info-depletion" title="Pool sizes (cases/yr) come from sovVolumePool() — the same FY'25 procedure database figures used everywhere else in the tool. Claimed cases = pool size x each opportunity's eligibility% x capture% (or, for Acquisition – Stimulate Demand, its own direct per-procedure pull%). Case counts are addressable volume, not committed/booked cases.">i</span></h3>
+          <p class="subtle" style="margin:-4px 0 10px;">How much of each Source of Volume + procedure pool the portfolio has already claimed, opportunity by opportunity. A pool at or past 100% means at least one opportunity's addressable volume is overstated relative to the FY'25 procedure database — review the contributors together. Only pools with at least one opportunity currently drawing from them are shown.</p>
+          <div id="sovDepletionChart"></div>
+        </div>
       </div>
       <div class="grid grid-2 section">
         <div class="card"><h3 style="margin-bottom:10px;">Risk-Reward Matrix<span class="info-icon" id="rr-info-matrix">i</span></h3><div class="svg-wrap"><div id="riskRewardChart"></div></div></div>
@@ -494,15 +502,9 @@ svg text{font-family:var(--font-headline);}
           <div class="svg-wrap"><div id="competitiveChart"></div></div>
         </div>
         <div class="card">
-          <h3 style="margin-bottom:10px;">Big Picture Source of Volume<span class="info-icon" id="rr-info-sov">i</span></h3>
-          <p class="subtle" style="margin:-4px 0 10px;">Every revenue-generating opportunity plotted by its assigned Source of Volume — the Big Picture Partners 4-quadrant growth framework. Cost-savings opportunities and linked components don't have an SoV and aren't shown.</p>
-          <div class="svg-wrap"><div id="sovQuadrantChart"></div></div>
+          <h3 style="margin-bottom:10px;">Portfolio Map (Impact vs. Ability to Win, colored by Category)</h3>
+          <div class="svg-wrap"><div id="portfolioMap"></div></div>
         </div>
-      </div>
-      <div class="card section">
-        <h3 style="margin-bottom:10px;">Source of Volume Pool Depletion<span class="info-icon" id="pf-info-depletion" title="Pool sizes (cases/yr) come from sovVolumePool() — the same FY'25 procedure database figures used everywhere else in the tool. Claimed cases = pool size x each opportunity's eligibility% x capture% (or, for Acquisition – Stimulate Demand, its own direct per-procedure pull%). Case counts are addressable volume, not committed/booked cases.">i</span></h3>
-        <p class="subtle" style="margin:-4px 0 10px;">How much of each Source of Volume + procedure pool the portfolio has already claimed, opportunity by opportunity. A pool at or past 100% means at least one opportunity's addressable volume is overstated relative to the FY'25 procedure database — review the contributors together. Only pools with at least one opportunity currently drawing from them are shown.</p>
-        <div id="sovDepletionChart"></div>
       </div>
     </section>
 
@@ -1150,6 +1152,18 @@ function sovVolumeParts(o){
     otherCases:0, otherUSD:0, recurringAnnualUSD:0, oneTimeCapitalUSD:0};
   if(o.tamMethod!=='sov' || !o.sov) return zero;
 
+  // Application (software) Upgrade — a one-time fee to upgrade the Mako software, available on
+  // every Source of Volume. Retention–Stimulate Demand sizes it as a % of the existing US Mako
+  // fleet; the other SoVs aren't drawn from that fleet, so they use a director-entered system count.
+  let appUpgradeUSD = 0;
+  if(v.appUpgradeEnabled){
+    const upgradingSystems = o.sov === 'retSD'
+      ? clamp(v.appUpgradeAdoptionPct,0,100)/100 * MARKET.makoSystemsUS
+      : Math.max(0, v.appUpgradeSystemCount||0);
+    appUpgradeUSD = upgradingSystems * (v.appUpgradePrice||0);
+  }
+  const wAppUpgradeUSD = applyConfidence(appUpgradeUSD, sovCatConfidence(v, 'appUpgrade'));
+
   if(o.sov === 'acqSD'){
     const facilityPool = Math.max(MARKET.sovKneeFacilities.acqSD||0, MARKET.sovHipFacilities.acqSD||0);
     const newSystems = clamp(v.acqSdFacilityPct,0,100)/100 * facilityPool;
@@ -1186,9 +1200,10 @@ function sovVolumeParts(o){
     // moment a new Mako is placed. tamAnnualUSD (used for ranking/scoring/roadmap) still adds all
     // three together — this split is purely an additional breakdown shown in the TAM Calculator.
     return {...zero, convertedCases: kneeCases+hipCases, procedureUSD, newSystems, capitalUSD, serviceUSD,
-      acqSdKneeUSD, acqSdHipUSD, totalUSD: wProcedureUSD+wCapitalUSD+wServiceUSD,
+      acqSdKneeUSD, acqSdHipUSD, appUpgradeUSD, appUpgradeUSD_w: wAppUpgradeUSD,
+      totalUSD: wProcedureUSD+wCapitalUSD+wServiceUSD+wAppUpgradeUSD,
       utilizationRate: MARKET.casesPerSystemPerYear, vol: poolTotal, facilityPool, byProcedure,
-      recurringAnnualUSD: wProcedureUSD+wServiceUSD, oneTimeCapitalUSD: wCapitalUSD,
+      recurringAnnualUSD: wProcedureUSD+wServiceUSD, oneTimeCapitalUSD: wCapitalUSD+wAppUpgradeUSD,
       // Confidence-weighted category subtotals, exposed for the Revenue by Opportunity chart
       // (revenueBuckets()) — capitalUSD_w/serviceUSD_w mirror oneTimeCapitalUSD/the service part of
       // recurringAnnualUSD above; acqSD has no upgrade/lift/attach/"other" custom procedure.
@@ -1249,13 +1264,8 @@ function sovVolumeParts(o){
   const capitalUSD = capitalUSDStd + otherCapitalUSD;
   const serviceUSD = serviceUSDStd + otherServiceUSD;
 
-  let upgradeUSD=0, upgradeNewProcUSD=0, liftUSD=0, attachUSD=0, attachServiceUSD=0, attachSystems=0, appUpgradeUSD=0;
+  let upgradeUSD=0, upgradeNewProcUSD=0, liftUSD=0, attachUSD=0, attachServiceUSD=0, attachSystems=0;
   if(o.sov === 'retSD'){
-    // Application (software) Upgrade: a one-time fee paid by the share of the installed Mako fleet
-    // that upgrades its software — no new procedure volume, no recurring stream.
-    if(v.appUpgradeEnabled){
-      appUpgradeUSD = clamp(v.appUpgradeAdoptionPct,0,100)/100 * MARKET.makoSystemsUS * (v.appUpgradePrice||0);
-    }
     if(v.upgradeEnabled){
       const upgradedSystems = clamp(v.upgradeAdoptionPct,0,100)/100 * MARKET.makoSystemsUS;
       upgradeUSD = upgradedSystems * (v.upgradePrice||0);
@@ -1317,7 +1327,6 @@ function sovVolumeParts(o){
   const wLiftUSD = applyConfidence(liftUSD, confLift);
   const wAttachUSD = applyConfidence(attachUSD, confAttach);
   const wAttachServiceUSD = applyConfidence(attachServiceUSD, confAttach);
-  const wAppUpgradeUSD = applyConfidence(appUpgradeUSD, sovCatConfidence(v, 'appUpgrade'));
   const totalUSD = wProcedureUSD+wCapitalUSD+wServiceUSD+wUpgradeUSD+wUpgradeNewProcUSD+wLiftUSD+wAttachUSD+wAttachServiceUSD+wAppUpgradeUSD;
   // Recurring vs one-time split: procedure revenue (which already includes disposables — full ASP
   // for standard SoVs, disposables-only for retSD) and the service contract always recur; Robot
@@ -1429,12 +1438,18 @@ function tamChannelBreakdown(o){
         rows.push({label:`${bp.label} Pull (${SOV_LABELS.acqSD})`, usd: applyConfidence(raw, bp.confidence), recurring:true,
           basis:`${pct}% of ${Math.round(bp.pool).toLocaleString()} addressable ${bp.label} cases/yr x $${Math.round(bp.asp).toLocaleString()}/case (implant + disposables), recurring${confidenceNote(raw, bp.confidence)}`});
       });
+      if(v.appUpgradeEnabled){
+        const confApp = sovCatConfidence(v, 'appUpgrade');
+        const appRaw = Math.round(p.appUpgradeUSD);
+        rows.push({label:'Application Upgrade (one-time)', usd: applyConfidence(appRaw, confApp), recurring:false,
+          basis:`${Math.max(0,v.appUpgradeSystemCount||0).toLocaleString()} Mako system${Math.max(0,v.appUpgradeSystemCount||0)===1?'':'s'} upgrading x $${(v.appUpgradePrice||0).toLocaleString()} one-time software upgrade fee${confidenceNote(appRaw, confApp)}`});
+      }
       // p.recurringAnnualUSD / p.oneTimeCapitalUSD are already confidence-weighted (see
       // sovVolumeParts) — no additional multiplier applied here.
       rows.push({label:'Recurring Annual Subtotal', usd: Math.round(p.recurringAnnualUSD), recurring:true, isSubtotal:true,
         basis:'Procedure revenue (implant + disposables) + service contract — repeats every year.'});
       rows.push({label:'One-Time Capital Subtotal', usd: Math.round(p.oneTimeCapitalUSD), recurring:false, isSubtotal:true,
-        basis:'New system capital — counted once, in the year systems are placed, not every year.'});
+        basis:'New system capital + Application Upgrade — counted once, not every year.'});
       return rows;
     }
 
@@ -1497,11 +1512,11 @@ function tamChannelBreakdown(o){
           basis:`Upgraded systems x ${round1(MARKET.casesPerSystemPerYear)} cases/system/yr x ${clamp(v.upgradeNewProcedureCapturePct,0,100)}% capture x $${sovProcedureASP(v.upgradeNewProcedure||'TKA').toLocaleString()}/case, recurring${confidenceNote(newProcRaw, confUpgrade)}`});
       }
     }
-    if(o.sov==='retSD' && v.appUpgradeEnabled){
+    if(o.sov!=='acqSD' && v.appUpgradeEnabled){
       const confApp = sovCatConfidence(v, 'appUpgrade');
       const appRaw = Math.round(p.appUpgradeUSD);
       rows.push({label:'Application Upgrade (one-time)', usd: applyConfidence(appRaw, confApp), recurring:false,
-        basis:`${clamp(v.appUpgradeAdoptionPct,0,100)}% of ${MARKET.makoSystemsUS.toLocaleString()} Mako systems x $${(v.appUpgradePrice||0).toLocaleString()} one-time software upgrade fee${confidenceNote(appRaw, confApp)}`});
+        basis:`${o.sov==='retSD' ? clamp(v.appUpgradeAdoptionPct,0,100)+'% of '+MARKET.makoSystemsUS.toLocaleString()+' Mako systems' : Math.max(0,v.appUpgradeSystemCount||0).toLocaleString()+' Mako system'+(Math.max(0,v.appUpgradeSystemCount||0)===1?'':'s')+' upgrading'} x $${(v.appUpgradePrice||0).toLocaleString()} one-time software upgrade fee${confidenceNote(appRaw, confApp)}`});
     }
     if(o.sov==='retSD' && v.volumeLiftEnabled){
       const liftRaw = Math.round(p.liftUSD);
@@ -1721,7 +1736,7 @@ function normalizeOpportunity(o){
   // procedure Disposable ASP instead, same as every other SoV; any leftover disposableRevenuePerCase
   // value on old saved data is simply no longer read.)
   Object.entries({
-    appUpgradeEnabled:false, appUpgradePrice:10000, appUpgradeAdoptionPct:50,
+    appUpgradeEnabled:false, appUpgradePrice:10000, appUpgradeAdoptionPct:50, appUpgradeSystemCount:0,
     upgradeEnabled:false, upgradePricingType:'capital', upgradePrice:50000, upgradeAdoptionPct:20,
     upgradeEnablesNewProcedure:false, upgradeNewProcedure:'TKA', upgradeNewProcedureCapturePct:10,
     volumeLiftEnabled:false, volumeLiftProcedure:'Both', volumeLiftPct:5,
@@ -2869,7 +2884,7 @@ function openNewOpp(){
     // copied from another opportunity.
     sovVolume:{procedures: Object.fromEntries(SOV_PROCEDURE_KEYS.map(pk=>[pk,{enabled:false, eligibilityPct:100, captureRatePct:5}])),
       eligibilityPct:100, captureRatePct:5, customProcedureName:'', customVolume:0, customASP:5000,
-      appUpgradeEnabled:false, appUpgradePrice:10000, appUpgradeAdoptionPct:50,
+      appUpgradeEnabled:false, appUpgradePrice:10000, appUpgradeAdoptionPct:50, appUpgradeSystemCount:0,
       upgradeEnabled:false, upgradePricingType:'capital', upgradePrice:50000, upgradeAdoptionPct:20, upgradeEnablesNewProcedure:false, upgradeNewProcedure:'TKA', upgradeNewProcedureCapturePct:10,
       volumeLiftEnabled:false, volumeLiftProcedure:'Both', volumeLiftPct:5,
       attachEnabled:false, attachPrice:800000, attachAdoptionPct:20, attachSystemCount:0,
@@ -3097,6 +3112,27 @@ function fillDrawer(o){
           <p class="subtle" style="margin:2px 0 10px;" id="sv-acqsd-note"></p>
         </div>
 
+          <div id="sv-appupgrade-wrap" style="display:none;">
+          <div id="sv-appupgrade-block" style="background:var(--white);border-radius:8px;padding:10px 12px;margin-bottom:10px;">
+            <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:700;color:var(--navy);margin-bottom:${o.sovVolume.appUpgradeEnabled?'8px':'0'};">
+              <input type="checkbox" id="sv-appUpgradeEnabled" ${o.sovVolume.appUpgradeEnabled?'checked':''}> Application Upgrade (one-time software fee)${infoIconText('One-time fee to upgrade the Mako software, independent of procedure volume. Retention–Stimulate Demand sizes it as a % of the existing US Mako fleet; every other Source of Volume uses a director-entered count of systems upgrading, since those accounts are not drawn from that fleet.')}
+            </label>
+            <div id="sv-appupgrade-fields" style="display:${o.sovVolume.appUpgradeEnabled?'block':'none'};">
+              <div class="field-row"><label>One-Time Upgrade Fee ($)</label>
+                <input type="text" id="sv-appUpgradePrice" value="${(o.sovVolume.appUpgradePrice??10000).toLocaleString()}">
+              </div>
+              <div class="field-row" id="sv-appupgrade-pct-row" style="display:${o.sov==='retSD'?'block':'none'};"><label>Adoption % of ${MARKET.makoSystemsUS.toLocaleString()} Mako Systems <span id="sv-appUpgradeAdoptionPct-val">${o.sovVolume.appUpgradeAdoptionPct??50}</span>%</label>
+                <input type="range" min="0" max="100" step="1" id="sv-appUpgradeAdoptionPct" value="${o.sovVolume.appUpgradeAdoptionPct??50}" style="width:100%;accent-color:var(--blue);">
+              </div>
+              <div class="field-row" id="sv-appupgrade-count-row" style="display:${o.sov==='retSD'?'none':'block'};"><label>Number of Mako Systems Upgrading</label>
+                <input type="text" id="sv-appUpgradeSystemCount" value="${o.sovVolume.appUpgradeSystemCount||0}" placeholder="e.g. 50">
+              </div>
+              ${confidenceSelectHtml('sv-confidence-appUpgrade', 'Confidence', sovCatConfidence(o.sovVolume,'appUpgrade'))}
+            </div>
+          </div>
+
+          </div>
+
         <div id="sv-retsd-extras" style="display:none;">
           <div id="sv-upgrade-block" style="background:var(--white);border-radius:8px;padding:10px 12px;margin-bottom:10px;">
             <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:700;color:var(--navy);margin-bottom:${o.sovVolume.upgradeEnabled?'8px':'0'};">
@@ -3134,21 +3170,6 @@ function fillDrawer(o){
                 </div>
               </div>
               ${confidenceSelectHtml('sv-confidence-upgrade', 'Confidence', sovCatConfidence(o.sovVolume,'upgrade'))}
-            </div>
-          </div>
-
-          <div id="sv-appupgrade-block" style="background:var(--white);border-radius:8px;padding:10px 12px;margin-bottom:10px;">
-            <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:700;color:var(--navy);margin-bottom:${o.sovVolume.appUpgradeEnabled?'8px':'0'};">
-              <input type="checkbox" id="sv-appUpgradeEnabled" ${o.sovVolume.appUpgradeEnabled?'checked':''}> Application Upgrade (one-time software fee)
-            </label>
-            <div id="sv-appupgrade-fields" style="display:${o.sovVolume.appUpgradeEnabled?'block':'none'};">
-              <div class="field-row"><label>One-Time Upgrade Fee ($)</label>
-                <input type="text" id="sv-appUpgradePrice" value="${(o.sovVolume.appUpgradePrice??10000).toLocaleString()}">
-              </div>
-              <div class="field-row"><label>Adoption % of ${MARKET.makoSystemsUS.toLocaleString()} Mako Systems <span id="sv-appUpgradeAdoptionPct-val">${o.sovVolume.appUpgradeAdoptionPct??50}</span>%</label>
-                <input type="range" min="0" max="100" step="1" id="sv-appUpgradeAdoptionPct" value="${o.sovVolume.appUpgradeAdoptionPct??50}" style="width:100%;accent-color:var(--blue);">
-              </div>
-              ${confidenceSelectHtml('sv-confidence-appUpgrade', 'Confidence', sovCatConfidence(o.sovVolume,'appUpgrade'))}
             </div>
           </div>
 
@@ -3342,6 +3363,7 @@ function fillDrawer(o){
       appUpgradeEnabled: $('#sv-appUpgradeEnabled').checked,
     appUpgradePrice: Number(String($('#sv-appUpgradePrice').value).replace(/,/g,''))||0,
     appUpgradeAdoptionPct: Number($('#sv-appUpgradeAdoptionPct').value),
+    appUpgradeSystemCount: Number(String($('#sv-appUpgradeSystemCount').value).replace(/,/g,''))||0,
     upgradeEnabled: $('#sv-upgradeEnabled').checked,
       upgradePricingType: $('#sv-upgradePricingType').value,
       upgradePrice: Number(String($('#sv-upgradePrice').value).replace(/,/g,''))||0,
@@ -3425,6 +3447,10 @@ function fillDrawer(o){
     $('#sv-base-fields').style.display = (sov && sov!=='acqSD') ? '' : 'none';
     $('#sv-acqsd-fields').style.display = sov==='acqSD' ? '' : 'none';
     $('#sv-retsd-extras').style.display = sov==='retSD' ? '' : 'none';
+    $('#sv-appupgrade-wrap').style.display = sov ? '' : 'none';
+    const auPct = document.getElementById('sv-appupgrade-pct-row'), auCnt = document.getElementById('sv-appupgrade-count-row');
+    if(auPct) auPct.style.display = sov==='retSD' ? 'block' : 'none';
+    if(auCnt) auCnt.style.display = sov==='retSD' ? 'none' : 'block';
     const heading = document.getElementById('sv-retsd-heading');
     if(heading) heading.style.display = sov==='retSD' ? 'block' : 'none';
     // Robot Purchase sizing input: retSD draws a % from the existing Mako fleet; acqES/retES enter
@@ -3653,6 +3679,7 @@ function saveDrawer(id){
     appUpgradeEnabled: $('#sv-appUpgradeEnabled').checked,
     appUpgradePrice: Number(String($('#sv-appUpgradePrice').value).replace(/,/g,''))||0,
     appUpgradeAdoptionPct: Number($('#sv-appUpgradeAdoptionPct').value),
+    appUpgradeSystemCount: Number(String($('#sv-appUpgradeSystemCount').value).replace(/,/g,''))||0,
     upgradeEnabled: $('#sv-upgradeEnabled').checked,
     upgradePricingType: $('#sv-upgradePricingType').value,
     upgradePrice: Number(String($('#sv-upgradePrice').value).replace(/,/g,''))||0,
